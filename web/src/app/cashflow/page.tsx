@@ -69,10 +69,10 @@ export default function CashflowPage() {
 
       <div className="panel overflow-x-auto">
         <table className="table-pro">
-          <thead><tr><th>Month</th><th>Type</th><th>Category</th><th>Amount</th><th>Recurring</th></tr></thead>
+          <thead><tr><th>Month</th><th>Type</th><th>Category</th><th>Amount</th><th>Recurring</th><th></th></tr></thead>
           <tbody>
             {items.length === 0 ? (
-              <tr><td colSpan={5} className="text-[var(--muted)]">No cashflow entries yet.</td></tr>
+              <tr><td colSpan={6} className="text-[var(--muted)]">No cashflow entries yet.</td></tr>
             ) : items.map((e) => (
               <tr key={e.id}>
                 <td>{new Date(e.entry_month).toLocaleDateString("en-IN", { month: "short", year: "numeric" })}</td>
@@ -80,6 +80,13 @@ export default function CashflowPage() {
                 <td>{e.category}</td>
                 <td className="tabular-nums font-semibold">{formatINR(e.amount)}</td>
                 <td>{e.recurring ? "Yes" : "No"}</td>
+                <td>
+                  <button type="button" className="btn-ghost text-xs py-1 px-2 text-[var(--danger)] border-[rgba(180,35,24,0.35)]" onClick={async () => {
+                    if (!confirm("Delete this entry?")) return;
+                    await api.deleteCashflow(e.id);
+                    await load();
+                  }}>Delete</button>
+                </td>
               </tr>
             ))}
           </tbody>

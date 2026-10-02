@@ -223,6 +223,19 @@ func (a *API) CreatePerson(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, p)
 }
 
+func (a *API) DeletePerson(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	if err := a.Finance.DeletePerson(r.Context(), id); err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
 func (a *API) ListDeposits(w http.ResponseWriter, r *http.Request) {
 	status := r.URL.Query().Get("status")
 	items, err := a.Finance.ListDeposits(r.Context(), status)
@@ -331,6 +344,19 @@ func (a *API) CreateGoal(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, g)
 }
 
+func (a *API) DeleteGoal(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	if err := a.Finance.DeleteGoal(r.Context(), id); err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
 func (a *API) ListMF(w http.ResponseWriter, r *http.Request) {
 	items, err := a.Finance.ListMF(r.Context())
 	if err != nil {
@@ -372,6 +398,19 @@ func (a *API) CreateCashflow(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, e)
 }
 
+func (a *API) DeleteCashflow(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	if err := a.Finance.DeleteCashflow(r.Context(), id); err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
 func (a *API) CreatePolicy(w http.ResponseWriter, r *http.Request) {
 	var in services.CreatePolicyInput
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
@@ -384,6 +423,19 @@ func (a *API) CreatePolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, p)
+}
+
+func (a *API) DeletePolicy(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	if err := a.Finance.DeletePolicy(r.Context(), id); err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
 func (a *API) CreateMF(w http.ResponseWriter, r *http.Request) {
@@ -400,6 +452,37 @@ func (a *API) CreateMF(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, h)
 }
 
+func (a *API) DeleteMF(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	if err := a.MF.DeleteHolding(r.Context(), id); err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+func (a *API) ListMFTransactions(w http.ResponseWriter, r *http.Request) {
+	var holdingID *uuid.UUID
+	if raw := r.URL.Query().Get("holding_id"); raw != "" {
+		id, err := uuid.Parse(raw)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, "invalid holding_id")
+			return
+		}
+		holdingID = &id
+	}
+	items, err := a.MF.ListTransactions(r.Context(), holdingID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
 func (a *API) ListStatements(w http.ResponseWriter, r *http.Request) {
 	items, err := a.MF.ListStatements(r.Context())
 	if err != nil {
@@ -411,6 +494,19 @@ func (a *API) ListStatements(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, items)
+}
+
+func (a *API) DeleteStatement(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	if err := a.MF.DeleteStatement(r.Context(), id); err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
 func (a *API) ImportMFStatement(w http.ResponseWriter, r *http.Request) {

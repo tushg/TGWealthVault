@@ -74,6 +74,20 @@ type MFHolding struct {
 	UpdatedAt      time.Time        `json:"updated_at"`
 }
 
+type MFTransaction struct {
+	ID           uuid.UUID        `json:"id"`
+	HoldingID    uuid.UUID        `json:"holding_id"`
+	SchemeName   string           `json:"scheme_name"`
+	TxnDate      time.Time        `json:"txn_date"`
+	Description  *string          `json:"description,omitempty"`
+	TxnType      string           `json:"txn_type"`
+	Amount       *decimal.Decimal `json:"amount,omitempty"`
+	Units        *decimal.Decimal `json:"units,omitempty"`
+	NAV          *decimal.Decimal `json:"nav,omitempty"`
+	BalanceUnits *decimal.Decimal `json:"balance_units,omitempty"`
+	CreatedAt    time.Time        `json:"created_at"`
+}
+
 type Goal struct {
 	ID                  uuid.UUID        `json:"id"`
 	PersonID            *uuid.UUID       `json:"person_id,omitempty"`

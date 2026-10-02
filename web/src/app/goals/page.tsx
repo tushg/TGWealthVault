@@ -97,6 +97,17 @@ export default function GoalsPage() {
                 <div className="text-right">
                   <div className="text-2xl tabular-nums font-semibold" style={{ fontFamily: "var(--font-display), Georgia, serif" }}>{pct.toFixed(0)}%</div>
                   <div className="text-xs text-[var(--muted)]">funded</div>
+                  <button
+                    type="button"
+                    className="btn-ghost text-xs py-1 px-2 mt-2 text-[var(--danger)] border-[rgba(180,35,24,0.35)]"
+                    onClick={async () => {
+                      if (!confirm("Delete this goal?")) return;
+                      await api.deleteGoal(g.id);
+                      await load();
+                    }}
+                  >
+                    Delete
+                  </button>
                 </div>
               </div>
               <div className="mt-4 h-2.5 rounded-full bg-[var(--chip)] overflow-hidden">

@@ -63,11 +63,11 @@ export default function PoliciesPage() {
       <div className="panel overflow-x-auto">
         <table className="table-pro">
           <thead>
-            <tr><th>Insurer</th><th>Type</th><th>Sum assured</th><th>Premium</th><th>Next due</th><th>Status</th></tr>
+            <tr><th>Insurer</th><th>Type</th><th>Sum assured</th><th>Premium</th><th>Next due</th><th>Status</th><th></th></tr>
           </thead>
           <tbody>
             {items.length === 0 ? (
-              <tr><td colSpan={6} className="text-[var(--muted)]">No policies yet.</td></tr>
+              <tr><td colSpan={7} className="text-[var(--muted)]">No policies yet.</td></tr>
             ) : items.map((p) => (
               <tr key={p.id}>
                 <td className="font-medium">{p.insurer}</td>
@@ -76,6 +76,13 @@ export default function PoliciesPage() {
                 <td className="tabular-nums">{formatINR(p.premium_amount)} <span className="text-xs text-[var(--muted)]">/{p.premium_frequency || "—"}</span></td>
                 <td>{p.next_due_date ? new Date(p.next_due_date).toLocaleDateString("en-IN") : "—"}</td>
                 <td className="capitalize text-[var(--accent)]">{p.status}</td>
+                <td>
+                  <button type="button" className="btn-ghost text-xs py-1 px-2 text-[var(--danger)] border-[rgba(180,35,24,0.35)]" onClick={async () => {
+                    if (!confirm("Delete this policy?")) return;
+                    await api.deletePolicy(p.id);
+                    await load();
+                  }}>Delete</button>
+                </td>
               </tr>
             ))}
           </tbody>

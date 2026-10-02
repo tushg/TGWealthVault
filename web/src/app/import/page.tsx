@@ -29,7 +29,7 @@ export default function ImportPage() {
     const fd = new FormData(form);
     try {
       const res = await api.importMF(fd);
-      setMsg(`Imported ${res.holdings_imported} holding(s) from ${res.source.toUpperCase()}. ${res.notes || ""}`);
+      setMsg(`Imported ${res.holdings_imported} scheme(s), ${res.transactions_imported || 0} transaction(s) from ${res.source.toUpperCase()}. ${res.notes || ""}`);
       form.reset();
       await load();
     } catch (error) {
@@ -51,9 +51,10 @@ export default function ImportPage() {
         <form onSubmit={onSubmit} className="panel p-6 space-y-4">
           <div>
             <h2 className="text-lg" style={{ fontFamily: "var(--font-display), Georgia, serif" }}>Upload CAS</h2>
-            <p className="text-sm text-[var(--muted)] mt-1">
-              Prefer CSV/Excel export from CAMS or KFin for best accuracy. PDF is stored encrypted; paste text if the PDF is image-only.
-            </p>
+          <p className="text-sm text-[var(--muted)] mt-1">
+            Upload CAMS <strong>Detailed</strong> Consolidated Account Statement (PDF/CSV/TXT). We parse transactions and create MF holdings by scheme name.
+            Password-protected PDFs: unlock/export text or paste statement text below.
+          </p>
           </div>
           <label>
             <span className="label">Source</span>
@@ -92,17 +93,33 @@ export default function ImportPage() {
                 <th>Source</th>
                 <th>Status</th>
                 <th>Holdings</th>
+                <th>Txns</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
               {statements.length === 0 ? (
-                <tr><td colSpan={4} className="text-[var(--muted)]">No imports yet.</td></tr>
+                <tr><td colSpan={6} className="text-[var(--muted)]">No imports yet.</td></tr>
               ) : statements.map((s) => (
                 <tr key={String(s.id)}>
                   <td className="max-w-[160px] truncate">{String(s.filename)}</td>
                   <td className="uppercase text-xs">{String(s.source)}</td>
                   <td>{String(s.status)}</td>
                   <td className="tabular-nums">{String(s.holdings_imported ?? 0)}</td>
+                  <td className="tabular-nums">{String(s.transactions_imported ?? 0)}</td>
+                  <td>
+                    <button
+                      type="button"
+                      className="btn-ghost text-xs py-1 px-2 text-[var(--danger)] border-[rgba(180,35,24,0.35)]"
+                      onClick={async () => {
+                        if (!confirm("Delete this import record?")) return;
+                        await api.deleteStatement(String(s.id));
+                        await load();
+                      }}
+                    >
+                      Delete
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>

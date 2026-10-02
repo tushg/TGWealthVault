@@ -35,10 +35,20 @@ export default function PeoplePage() {
       </form>
       <div className="panel overflow-hidden">
         <table className="table-pro">
-          <thead><tr><th>Name</th><th>Relation</th></tr></thead>
+          <thead><tr><th>Name</th><th>Relation</th><th></th></tr></thead>
           <tbody>
-            {people.length === 0 ? <tr><td colSpan={2} className="text-[var(--muted)]">No members yet.</td></tr> : people.map((p) => (
-              <tr key={p.id}><td className="font-medium">{p.name}</td><td>{p.relation || "—"}</td></tr>
+            {people.length === 0 ? <tr><td colSpan={3} className="text-[var(--muted)]">No members yet.</td></tr> : people.map((p) => (
+              <tr key={p.id}>
+                <td className="font-medium">{p.name}</td>
+                <td>{p.relation || "—"}</td>
+                <td>
+                  <button type="button" className="btn-ghost text-xs py-1 px-2 text-[var(--danger)] border-[rgba(180,35,24,0.35)]" onClick={async () => {
+                    if (!confirm("Delete this member?")) return;
+                    await api.deletePerson(p.id);
+                    await load();
+                  }}>Delete</button>
+                </td>
+              </tr>
             ))}
           </tbody>
         </table>

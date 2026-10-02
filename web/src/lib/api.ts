@@ -129,6 +129,19 @@ export type CashflowEntry = {
   recurring: boolean;
 };
 
+export type MFTransaction = {
+  id: string;
+  holding_id: string;
+  scheme_name: string;
+  txn_date: string;
+  description?: string;
+  txn_type: string;
+  amount?: string;
+  units?: string;
+  nav?: string;
+  balance_units?: string;
+};
+
 export type Person = {
   id: string;
   name: string;
@@ -184,22 +197,39 @@ export const api = {
     request<Deposit>(`/api/v1/deposits/${id}/mature`, { method: "POST" }),
   createGoal: (body: Record<string, unknown>) =>
     request<Goal>("/api/v1/goals", { method: "POST", body: JSON.stringify(body) }),
+  deleteGoal: (id: string) =>
+    request<{ status: string }>(`/api/v1/goals/${id}`, { method: "DELETE" }),
   createMF: (body: Record<string, unknown>) =>
     request<MFHolding>("/api/v1/mf", { method: "POST", body: JSON.stringify(body) }),
+  deleteMF: (id: string) =>
+    request<{ status: string }>(`/api/v1/mf/${id}`, { method: "DELETE" }),
+  mfTransactions: (holdingId?: string) =>
+    request<MFTransaction[]>(
+      `/api/v1/mf/transactions${holdingId ? `?holding_id=${encodeURIComponent(holdingId)}` : ""}`,
+    ),
   createPolicy: (body: Record<string, unknown>) =>
     request<Policy>("/api/v1/policies", { method: "POST", body: JSON.stringify(body) }),
+  deletePolicy: (id: string) =>
+    request<{ status: string }>(`/api/v1/policies/${id}`, { method: "DELETE" }),
   createCashflow: (body: Record<string, unknown>) =>
     request<CashflowEntry>("/api/v1/cashflow", { method: "POST", body: JSON.stringify(body) }),
+  deleteCashflow: (id: string) =>
+    request<{ status: string }>(`/api/v1/cashflow/${id}`, { method: "DELETE" }),
   createPerson: (name: string, relation?: string) =>
     request("/api/v1/persons", {
       method: "POST",
       body: JSON.stringify({ name, relation }),
     }),
+  deletePerson: (id: string) =>
+    request<{ status: string }>(`/api/v1/persons/${id}`, { method: "DELETE" }),
+  deleteStatement: (id: string) =>
+    request<{ status: string }>(`/api/v1/mf/statements/${id}`, { method: "DELETE" }),
   importMF: (form: FormData) =>
     request<{
       statement_id: string;
       source: string;
       holdings_imported: number;
+      transactions_imported?: number;
       status: string;
       notes?: string;
       holdings?: MFHolding[];

@@ -177,6 +177,17 @@ func (s *FinanceService) CreatePerson(ctx context.Context, name string, relation
 	return &p, nil
 }
 
+func (s *FinanceService) DeletePerson(ctx context.Context, id uuid.UUID) error {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM persons WHERE id=$1`, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("person not found")
+	}
+	return nil
+}
+
 func (s *FinanceService) ListDeposits(ctx context.Context, status string) ([]models.Deposit, error) {
 	_ = s.SyncMaturedDeposits(ctx)
 
@@ -359,6 +370,17 @@ func (s *FinanceService) CreateGoal(ctx context.Context, in CreateGoalInput) (*m
 	return &g, nil
 }
 
+func (s *FinanceService) DeleteGoal(ctx context.Context, id uuid.UUID) error {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM goals WHERE id=$1`, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("goal not found")
+	}
+	return nil
+}
+
 func (s *FinanceService) ListMF(ctx context.Context) ([]models.MFHolding, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, person_id, amc, scheme_name, scheme_code, units, nav, nav_date,
@@ -447,6 +469,17 @@ func (s *FinanceService) CreateCashflow(ctx context.Context, in CreateCashflowIn
 	return &e, nil
 }
 
+func (s *FinanceService) DeleteCashflow(ctx context.Context, id uuid.UUID) error {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM cashflow_entries WHERE id=$1`, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("cashflow entry not found")
+	}
+	return nil
+}
+
 type CreatePolicyInput struct {
 	PersonID         *uuid.UUID       `json:"person_id"`
 	Insurer          string           `json:"insurer"`
@@ -477,4 +510,15 @@ func (s *FinanceService) CreatePolicy(ctx context.Context, in CreatePolicyInput)
 		return nil, err
 	}
 	return &p, nil
+}
+
+func (s *FinanceService) DeletePolicy(ctx context.Context, id uuid.UUID) error {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM policies WHERE id=$1`, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("policy not found")
+	}
+	return nil
 }
