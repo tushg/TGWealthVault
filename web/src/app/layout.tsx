@@ -1,28 +1,28 @@
 import type { Metadata } from "next";
-import { Fraunces, Source_Sans_3 } from "next/font/google";
+import { IBM_Plex_Sans, Newsreader } from "next/font/google";
 import "./globals.css";
 
-const display = Fraunces({
-  variable: "--font-display",
-  subsets: ["latin"],
-});
-
-const sans = Source_Sans_3({
+const sans = IBM_Plex_Sans({
   variable: "--font-sans",
   subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+});
+
+const display = Newsreader({
+  variable: "--font-display",
+  subsets: ["latin"],
+  weight: ["500", "600", "700"],
 });
 
 export const metadata: Metadata = {
-  title: "TGWealthVault",
-  description: "Private family wealth vault for India — deposits, mutual funds, goals, and cashflow.",
+  title: "TGWealthVault | Portfolio Manager",
+  description: "Private family portfolio manager — mutual funds, deposits, goals, and cashflow.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${display.variable} ${sans.variable} h-full`}>
-      <body className="min-h-full antialiased" style={{ fontFamily: "var(--font-sans), system-ui, sans-serif" }}>
-        {children}
-      </body>
+    <html lang="en" className={`${sans.variable} ${display.variable} h-full`}>
+      <body className="min-h-full antialiased">{children}</body>
     </html>
   );
 }

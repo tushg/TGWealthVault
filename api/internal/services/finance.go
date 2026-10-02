@@ -2,6 +2,8 @@ package services
 
 import (
 	"context"
+	"fmt"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -20,44 +22,106 @@ func NewFinanceService(pool *pgxpool.Pool) *FinanceService {
 }
 
 func (s *FinanceService) Dashboard(ctx context.Context) (*models.DashboardSummary, error) {
-	sum := &models.DashboardSummary{
+	p, err := s.Portfolio(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &models.DashboardSummary{
+		TotalDeposits:      p.TotalDeposits,
+		TotalMFValue:       p.TotalMFValue,
+		TotalGoalsTarget:   p.TotalGoalsTarget,
+		TotalGoalsSaved:    p.TotalGoalsSaved,
+		MonthIncome:        p.MonthIncome,
+		MonthExpense:       p.MonthExpense,
+		UpcomingMaturities: p.UpcomingMaturities,
+		ActivePolicies:     p.ActivePolicies,
+	}, nil
+}
+
+func (s *FinanceService) Portfolio(ctx context.Context) (*models.PortfolioOverview, error) {
+	p := &models.PortfolioOverview{
 		TotalDeposits:    decimal.Zero,
 		TotalMFValue:     decimal.Zero,
 		TotalGoalsTarget: decimal.Zero,
 		TotalGoalsSaved:  decimal.Zero,
 		MonthIncome:      decimal.Zero,
 		MonthExpense:     decimal.Zero,
+		Allocation:       []models.AllocationSlice{},
+		Actions:          []models.ActionItem{},
+		TopHoldings:      []models.MFHolding{},
+		Goals:            []models.Goal{},
 	}
 
-	_ = s.pool.QueryRow(ctx, `
-		SELECT COALESCE(SUM(principal),0) FROM deposits WHERE status='active'
-	`).Scan(&sum.TotalDeposits)
+	_ = s.pool.QueryRow(ctx, `SELECT COALESCE(SUM(principal),0) FROM deposits WHERE status='active'`).Scan(&p.TotalDeposits)
+	_ = s.pool.QueryRow(ctx, `SELECT COALESCE(SUM(COALESCE(current_value, invested_amount, 0)),0), COUNT(*) FROM mf_holdings`).Scan(&p.TotalMFValue, &p.MFCount)
+	_ = s.pool.QueryRow(ctx, `SELECT COALESCE(SUM(target_amount),0), COALESCE(SUM(current_amount),0) FROM goals`).Scan(&p.TotalGoalsTarget, &p.TotalGoalsSaved)
 
-	_ = s.pool.QueryRow(ctx, `
-		SELECT COALESCE(SUM(COALESCE(current_value, invested_amount, 0)),0) FROM mf_holdings
-	`).Scan(&sum.TotalMFValue)
+	monthStart := time.Date(time.Now().UTC().Year(), time.Now().UTC().Month(), 1, 0, 0, 0, 0, time.UTC)
+	_ = s.pool.QueryRow(ctx, `SELECT COALESCE(SUM(amount),0) FROM cashflow_entries WHERE type='income' AND entry_month=$1`, monthStart).Scan(&p.MonthIncome)
+	_ = s.pool.QueryRow(ctx, `SELECT COALESCE(SUM(amount),0) FROM cashflow_entries WHERE type='expense' AND entry_month=$1`, monthStart).Scan(&p.MonthExpense)
+	_ = s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM deposits WHERE status='active' AND maturity_date <= CURRENT_DATE + INTERVAL '30 days'`).Scan(&p.UpcomingMaturities)
+	_ = s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM policies WHERE status='active'`).Scan(&p.ActivePolicies)
 
-	_ = s.pool.QueryRow(ctx, `
-		SELECT COALESCE(SUM(target_amount),0), COALESCE(SUM(current_amount),0) FROM goals
-	`).Scan(&sum.TotalGoalsTarget, &sum.TotalGoalsSaved)
+	p.NetWorth = p.TotalDeposits.Add(p.TotalMFValue)
+	p.MonthSurplus = p.MonthIncome.Sub(p.MonthExpense)
+	if !p.TotalGoalsTarget.IsZero() {
+		p.GoalFundingPct = p.TotalGoalsSaved.Div(p.TotalGoalsTarget).Mul(decimal.NewFromInt(100)).Round(1)
+	}
 
-	monthStart := time.Now().UTC().Truncate(24*time.Hour)
-	monthStart = time.Date(monthStart.Year(), monthStart.Month(), 1, 0, 0, 0, 0, time.UTC)
-	_ = s.pool.QueryRow(ctx, `
-		SELECT COALESCE(SUM(amount),0) FROM cashflow_entries WHERE type='income' AND entry_month=$1
-	`, monthStart).Scan(&sum.MonthIncome)
-	_ = s.pool.QueryRow(ctx, `
-		SELECT COALESCE(SUM(amount),0) FROM cashflow_entries WHERE type='expense' AND entry_month=$1
-	`, monthStart).Scan(&sum.MonthExpense)
+	total := p.NetWorth
+	addAlloc := func(name string, v decimal.Decimal) {
+		w := decimal.Zero
+		if !total.IsZero() {
+			w = v.Div(total).Mul(decimal.NewFromInt(100)).Round(1)
+		}
+		if !v.IsZero() {
+			p.Allocation = append(p.Allocation, models.AllocationSlice{Name: name, Value: v, Weight: w})
+		}
+	}
+	addAlloc("Fixed deposits", p.TotalDeposits)
+	addAlloc("Mutual funds", p.TotalMFValue)
 
-	_ = s.pool.QueryRow(ctx, `
-		SELECT COUNT(*) FROM deposits
-		WHERE status='active' AND maturity_date <= CURRENT_DATE + INTERVAL '30 days'
-	`).Scan(&sum.UpcomingMaturities)
+	if p.MFCount == 0 {
+		p.Actions = append(p.Actions, models.ActionItem{
+			Kind: "import", Title: "Import CAMS / KFin CAS", Detail: "Upload your consolidated account statement to load folios.", Severity: "info", Href: "/import",
+		})
+	}
+	if p.UpcomingMaturities > 0 {
+		p.Actions = append(p.Actions, models.ActionItem{
+			Kind: "maturity", Title: fmt.Sprintf("%d deposit(s) maturing in 30 days", p.UpcomingMaturities), Detail: "Review rollover vs goal funding.", Severity: "warn", Href: "/deposits",
+		})
+	}
+	if p.ActivePolicies == 0 {
+		p.Actions = append(p.Actions, models.ActionItem{
+			Kind: "protect", Title: "Add insurance cover", Detail: "Register term/health policies so premium dues stay visible.", Severity: "info", Href: "/policies",
+		})
+	}
+	if p.TotalGoalsTarget.IsZero() {
+		p.Actions = append(p.Actions, models.ActionItem{
+			Kind: "goal", Title: "Define your first goal", Detail: "Home, education, retirement — bank-style goal missions.", Severity: "info", Href: "/goals",
+		})
+	}
 
-	_ = s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM policies WHERE status='active'`).Scan(&sum.ActivePolicies)
+	holdings, _ := s.ListMF(ctx)
+	sort.Slice(holdings, func(i, j int) bool {
+		vi, vj := decimal.Zero, decimal.Zero
+		if holdings[i].CurrentValue != nil {
+			vi = *holdings[i].CurrentValue
+		}
+		if holdings[j].CurrentValue != nil {
+			vj = *holdings[j].CurrentValue
+		}
+		return vi.GreaterThan(vj)
+	})
+	if len(holdings) > 5 {
+		p.TopHoldings = holdings[:5]
+	} else {
+		p.TopHoldings = holdings
+	}
 
-	return sum, nil
+	goals, _ := s.ListGoals(ctx)
+	p.Goals = goals
+	return p, nil
 }
 
 func (s *FinanceService) ListPersons(ctx context.Context) ([]models.Person, error) {
@@ -149,8 +213,10 @@ func (s *FinanceService) CreateDeposit(ctx context.Context, in CreateDepositInpu
 
 func (s *FinanceService) ListGoals(ctx context.Context) ([]models.Goal, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, person_id, name, target_amount, current_amount, target_date, category, created_at, updated_at
-		FROM goals ORDER BY created_at DESC
+		SELECT id, person_id, name, target_amount, current_amount, target_date, category,
+		       COALESCE(goal_type,'custom'), COALESCE(monthly_contribution,0), COALESCE(priority,3),
+		       created_at, updated_at
+		FROM goals ORDER BY priority ASC, created_at DESC
 	`)
 	if err != nil {
 		return nil, err
@@ -159,7 +225,8 @@ func (s *FinanceService) ListGoals(ctx context.Context) ([]models.Goal, error) {
 	var out []models.Goal
 	for rows.Next() {
 		var g models.Goal
-		if err := rows.Scan(&g.ID, &g.PersonID, &g.Name, &g.TargetAmount, &g.CurrentAmount, &g.TargetDate, &g.Category, &g.CreatedAt, &g.UpdatedAt); err != nil {
+		if err := rows.Scan(&g.ID, &g.PersonID, &g.Name, &g.TargetAmount, &g.CurrentAmount, &g.TargetDate, &g.Category,
+			&g.GoalType, &g.MonthlyContribution, &g.Priority, &g.CreatedAt, &g.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, g)
@@ -168,22 +235,33 @@ func (s *FinanceService) ListGoals(ctx context.Context) ([]models.Goal, error) {
 }
 
 type CreateGoalInput struct {
-	PersonID      *uuid.UUID      `json:"person_id"`
-	Name          string          `json:"name"`
-	TargetAmount  decimal.Decimal `json:"target_amount"`
-	CurrentAmount decimal.Decimal `json:"current_amount"`
-	TargetDate    *time.Time      `json:"target_date"`
-	Category      *string         `json:"category"`
+	PersonID            *uuid.UUID      `json:"person_id"`
+	Name                string          `json:"name"`
+	TargetAmount        decimal.Decimal `json:"target_amount"`
+	CurrentAmount       decimal.Decimal `json:"current_amount"`
+	TargetDate          *time.Time      `json:"target_date"`
+	Category            *string         `json:"category"`
+	GoalType            string          `json:"goal_type"`
+	MonthlyContribution decimal.Decimal `json:"monthly_contribution"`
+	Priority            int             `json:"priority"`
 }
 
 func (s *FinanceService) CreateGoal(ctx context.Context, in CreateGoalInput) (*models.Goal, error) {
+	if in.GoalType == "" {
+		in.GoalType = "custom"
+	}
+	if in.Priority <= 0 {
+		in.Priority = 3
+	}
 	var g models.Goal
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO goals (person_id, name, target_amount, current_amount, target_date, category)
-		VALUES ($1,$2,$3,$4,$5,$6)
-		RETURNING id, person_id, name, target_amount, current_amount, target_date, category, created_at, updated_at
-	`, in.PersonID, in.Name, in.TargetAmount, in.CurrentAmount, in.TargetDate, in.Category).Scan(
-		&g.ID, &g.PersonID, &g.Name, &g.TargetAmount, &g.CurrentAmount, &g.TargetDate, &g.Category, &g.CreatedAt, &g.UpdatedAt,
+		INSERT INTO goals (person_id, name, target_amount, current_amount, target_date, category, goal_type, monthly_contribution, priority)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+		RETURNING id, person_id, name, target_amount, current_amount, target_date, category,
+		          COALESCE(goal_type,'custom'), COALESCE(monthly_contribution,0), COALESCE(priority,3), created_at, updated_at
+	`, in.PersonID, in.Name, in.TargetAmount, in.CurrentAmount, in.TargetDate, in.Category, in.GoalType, in.MonthlyContribution, in.Priority).Scan(
+		&g.ID, &g.PersonID, &g.Name, &g.TargetAmount, &g.CurrentAmount, &g.TargetDate, &g.Category,
+		&g.GoalType, &g.MonthlyContribution, &g.Priority, &g.CreatedAt, &g.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -277,4 +355,36 @@ func (s *FinanceService) CreateCashflow(ctx context.Context, in CreateCashflowIn
 		return nil, err
 	}
 	return &e, nil
+}
+
+type CreatePolicyInput struct {
+	PersonID         *uuid.UUID       `json:"person_id"`
+	Insurer          string           `json:"insurer"`
+	PolicyType       string           `json:"policy_type"`
+	PremiumAmount    *decimal.Decimal `json:"premium_amount"`
+	PremiumFrequency *string          `json:"premium_frequency"`
+	SumAssured       *decimal.Decimal `json:"sum_assured"`
+	StartDate        *time.Time       `json:"start_date"`
+	EndDate          *time.Time       `json:"end_date"`
+	NextDueDate      *time.Time       `json:"next_due_date"`
+}
+
+func (s *FinanceService) CreatePolicy(ctx context.Context, in CreatePolicyInput) (*models.Policy, error) {
+	if in.Insurer == "" || in.PolicyType == "" {
+		return nil, fmt.Errorf("insurer and policy_type required")
+	}
+	var p models.Policy
+	err := s.pool.QueryRow(ctx, `
+		INSERT INTO policies (person_id, insurer, policy_type, premium_amount, premium_frequency, sum_assured, start_date, end_date, next_due_date)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+		RETURNING id, person_id, insurer, policy_type, premium_amount, premium_frequency, sum_assured,
+		          start_date, end_date, next_due_date, status, created_at, updated_at
+	`, in.PersonID, in.Insurer, in.PolicyType, in.PremiumAmount, in.PremiumFrequency, in.SumAssured, in.StartDate, in.EndDate, in.NextDueDate).Scan(
+		&p.ID, &p.PersonID, &p.Insurer, &p.PolicyType, &p.PremiumAmount, &p.PremiumFrequency, &p.SumAssured,
+		&p.StartDate, &p.EndDate, &p.NextDueDate, &p.Status, &p.CreatedAt, &p.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &p, nil
 }

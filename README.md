@@ -4,7 +4,13 @@ Personal/family finance vault for an Indian resident. **Next.js** UI + **Go 1.25
 
 > Full product context: see [CONTEXT.md](./CONTEXT.md)
 
-## Architecture
+## Features & workflow
+See [WORKFLOW.md](./WORKFLOW.md) for the Import → Assess → Allocate → Aim → Protect → Operate loop (Value Research / bank goal-desk inspired).
+
+- Portfolio command centre (net worth, allocation, action centre)
+- CAMS/KFin CAS import (CSV/PDF + pasted text) with encrypted storage
+- FD/RD book, goal missions, policies, cashflow
+- Invite-only auth + MFA
 
 ```
 web/   → Next.js (App Router) + TypeScript + Tailwind  →  Vercel (later)

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
-  LayoutDashboard,
+  BriefcaseBusiness,
   Landmark,
   PieChart,
   Target,
@@ -12,27 +12,53 @@ import {
   Users,
   LogOut,
   Settings,
+  Upload,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/format";
 
-const nav = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/deposits", label: "FD / RD", icon: Landmark },
-  { href: "/mutual-funds", label: "Mutual Funds", icon: PieChart },
-  { href: "/goals", label: "Goals", icon: Target },
-  { href: "/policies", label: "Policies", icon: Shield },
-  { href: "/cashflow", label: "Cashflow", icon: Wallet },
-  { href: "/people", label: "People", icon: Users },
-  { href: "/settings", label: "Security", icon: Settings },
+const navGroups = [
+  {
+    label: "Assess",
+    items: [{ href: "/portfolio", label: "Portfolio", icon: BriefcaseBusiness }],
+  },
+  {
+    label: "Allocate",
+    items: [
+      { href: "/mutual-funds", label: "Mutual Funds", icon: PieChart },
+      { href: "/deposits", label: "Deposits", icon: Landmark },
+      { href: "/import", label: "Import CAS", icon: Upload },
+    ],
+  },
+  {
+    label: "Plan",
+    items: [
+      { href: "/goals", label: "Goals", icon: Target },
+      { href: "/policies", label: "Protect", icon: Shield },
+      { href: "/cashflow", label: "Cashflow", icon: Wallet },
+    ],
+  },
+  {
+    label: "Family",
+    items: [
+      { href: "/people", label: "Members", icon: Users },
+      { href: "/settings", label: "Security", icon: Settings },
+    ],
+  },
 ];
 
 export function AppShell({
   children,
   userName,
+  title,
+  subtitle,
+  actions,
 }: {
   children: React.ReactNode;
   userName?: string;
+  title?: string;
+  subtitle?: string;
+  actions?: React.ReactNode;
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -46,53 +72,66 @@ export function AppShell({
   }
 
   return (
-    <div className="min-h-screen lg:grid lg:grid-cols-[240px_1fr]">
-      <aside className="border-b border-[var(--line)] lg:border-b-0 lg:border-r lg:min-h-screen bg-[rgba(12,18,16,0.72)] backdrop-blur-xl">
-        <div className="px-5 py-6">
-          <Link href="/dashboard" className="block">
-            <div
-              className="text-[1.55rem] leading-none tracking-tight text-[var(--accent-strong)]"
-              style={{ fontFamily: "var(--font-display), Georgia, serif" }}
-            >
+    <div className="min-h-screen lg:grid lg:grid-cols-[248px_1fr]">
+      <aside className="bg-[var(--brand-deep)] text-white lg:min-h-screen">
+        <div className="px-5 py-6 border-b border-white/10">
+          <Link href="/portfolio">
+            <div className="text-[1.35rem] leading-none" style={{ fontFamily: "var(--font-display), Georgia, serif" }}>
               TGWealthVault
             </div>
-            <p className="mt-2 text-xs tracking-[0.18em] uppercase text-[var(--muted)]">
-              Family vault
-            </p>
+            <p className="mt-2 text-[11px] tracking-[0.16em] uppercase text-white/60">Portfolio Manager</p>
           </Link>
         </div>
-        <nav className="px-3 pb-4 flex lg:flex-col gap-1 overflow-x-auto">
-          {nav.map((item) => {
-            const Icon = item.icon;
-            const active = pathname === item.href;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={cn(
-                  "flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm whitespace-nowrap transition",
-                  active
-                    ? "bg-[rgba(196,181,138,0.14)] text-[var(--accent-strong)]"
-                    : "text-[var(--muted)] hover:text-[var(--text)] hover:bg-[rgba(255,255,255,0.03)]",
-                )}
-              >
-                <Icon size={16} />
-                {item.label}
-              </Link>
-            );
-          })}
+        <nav className="px-3 py-4 space-y-5">
+          {navGroups.map((group) => (
+            <div key={group.label}>
+              <div className="px-3 mb-1.5 text-[10px] tracking-[0.18em] uppercase text-white/45">{group.label}</div>
+              <div className="space-y-0.5">
+                {group.items.map((item) => {
+                  const Icon = item.icon;
+                  const active = pathname === item.href || (item.href !== "/portfolio" && pathname.startsWith(item.href));
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className={cn(
+                        "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition",
+                        active ? "bg-white/15 text-white" : "text-white/70 hover:bg-white/8 hover:text-white",
+                      )}
+                    >
+                      <Icon size={16} />
+                      {item.label}
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </nav>
-        <div className="hidden lg:block px-5 py-5 mt-auto border-t border-[var(--line)]">
-          <div className="text-sm text-[var(--text)]">{userName || "Signed in"}</div>
-          <button
-            onClick={logout}
-            className="mt-3 inline-flex items-center gap-2 text-sm text-[var(--muted)] hover:text-[var(--danger)]"
-          >
+        <div className="hidden lg:block px-5 py-5 mt-8 border-t border-white/10">
+          <div className="text-sm">{userName || "Signed in"}</div>
+          <button onClick={logout} className="mt-3 inline-flex items-center gap-2 text-sm text-white/65 hover:text-white">
             <LogOut size={14} /> Sign out
           </button>
         </div>
       </aside>
-      <main className="px-4 py-6 sm:px-8 sm:py-8">{children}</main>
+
+      <div className="min-w-0">
+        {(title || actions) && (
+          <header className="sticky top-0 z-10 border-b border-[var(--line)] bg-[rgba(247,249,252,0.92)] backdrop-blur px-4 sm:px-8 py-4 flex flex-wrap items-end justify-between gap-3">
+            <div>
+              {title && (
+                <h1 className="text-2xl sm:text-[1.75rem] text-[var(--ink)]" style={{ fontFamily: "var(--font-display), Georgia, serif" }}>
+                  {title}
+                </h1>
+              )}
+              {subtitle && <p className="mt-1 text-sm text-[var(--muted)]">{subtitle}</p>}
+            </div>
+            {actions}
+          </header>
+        )}
+        <main className="px-4 py-6 sm:px-8 sm:py-7">{children}</main>
+      </div>
     </div>
   );
 }

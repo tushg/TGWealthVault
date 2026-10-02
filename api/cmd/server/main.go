@@ -50,7 +50,8 @@ func main() {
 	}
 
 	finSvc := services.NewFinanceService(pool)
-	api := &handlers.API{Cfg: cfg, Auth: authSvc, Finance: finSvc}
+	mfSvc := services.NewMFService(pool, box, "uploads")
+	api := &handlers.API{Cfg: cfg, Auth: authSvc, Finance: finSvc, MF: mfSvc}
 
 	authLimiter := middleware.NewIPRateLimiter(rate.Every(time.Minute/10), 20) // ~10/min, burst 20
 
@@ -88,6 +89,7 @@ func main() {
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.RequireAuth(authSvc, true))
 			r.Get("/dashboard", api.Dashboard)
+			r.Get("/portfolio", api.Portfolio)
 			r.Get("/persons", api.ListPersons)
 			r.Post("/persons", api.CreatePerson)
 			r.Get("/deposits", api.ListDeposits)
@@ -95,7 +97,11 @@ func main() {
 			r.Get("/goals", api.ListGoals)
 			r.Post("/goals", api.CreateGoal)
 			r.Get("/mf", api.ListMF)
+			r.Post("/mf", api.CreateMF)
+			r.Post("/mf/import", api.ImportMFStatement)
+			r.Get("/mf/statements", api.ListStatements)
 			r.Get("/policies", api.ListPolicies)
+			r.Post("/policies", api.CreatePolicy)
 			r.Get("/cashflow", api.ListCashflow)
 			r.Post("/cashflow", api.CreateCashflow)
 			r.Post("/users", api.CreateUser)

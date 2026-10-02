@@ -1,171 +1,88 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
-import { api, ApiError, Deposit, User } from "@/lib/api";
+import { api, Deposit } from "@/lib/api";
 import { formatINR } from "@/lib/format";
+import { useSession } from "@/lib/useSession";
 
 export default function DepositsPage() {
-  const router = useRouter();
-  const [user, setUser] = useState<User | null>(null);
+  const { user, loading } = useSession();
   const [items, setItems] = useState<Deposit[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
-    const me = await api.me();
-    const list = await api.deposits();
-    setUser(me.user);
-    setItems(list || []);
+    setItems((await api.deposits()) || []);
   }
 
   useEffect(() => {
-    load().catch((err) => {
-      if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-        router.replace("/login");
-        return;
-      }
-      setError(err instanceof Error ? err.message : "Failed");
-    });
-  }, [router]);
+    if (user) load().catch((e) => setError(e.message));
+  }, [user]);
 
   async function onCreate(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
-    try {
-      await api.createDeposit({
-        type: fd.get("type"),
-        bank_name: fd.get("bank_name"),
-        principal: fd.get("principal"),
-        interest_rate: fd.get("interest_rate"),
-        start_date: new Date(String(fd.get("start_date"))).toISOString(),
-        maturity_date: new Date(String(fd.get("maturity_date"))).toISOString(),
-        compounding: "quarterly",
-        alert_days_before: 14,
-      });
-      setShowForm(false);
-      await load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Create failed");
-    }
+    await api.createDeposit({
+      type: fd.get("type"),
+      bank_name: fd.get("bank_name"),
+      principal: fd.get("principal"),
+      interest_rate: fd.get("interest_rate"),
+      start_date: new Date(String(fd.get("start_date"))).toISOString(),
+      maturity_date: new Date(String(fd.get("maturity_date"))).toISOString(),
+      compounding: "quarterly",
+      alert_days_before: 14,
+    });
+    setShowForm(false);
+    await load();
   }
 
-  if (!user) {
-    return <div className="min-h-screen grid place-items-center text-[var(--muted)]">Loading…</div>;
-  }
+  if (loading || !user) return <div className="min-h-screen grid place-items-center text-[var(--muted)]">Loading…</div>;
+
+  const book = items.reduce((s, d) => s + (Number(d.principal) || 0), 0);
 
   return (
-    <AppShell userName={user.name}>
-      <div className="flex flex-wrap items-end justify-between gap-4 mb-8">
-        <div>
-          <p className="text-xs tracking-[0.22em] uppercase text-[var(--muted)]">Deposits</p>
-          <h1
-            className="mt-2 text-4xl text-[var(--accent-strong)]"
-            style={{ fontFamily: "var(--font-display), Georgia, serif" }}
-          >
-            FD & RD
-          </h1>
-        </div>
-        <button
-          onClick={() => setShowForm((v) => !v)}
-          className="rounded-xl bg-[var(--accent)] text-[#12160f] font-semibold px-4 py-2.5"
-        >
-          {showForm ? "Cancel" : "Add deposit"}
-        </button>
+    <AppShell
+      userName={user.name}
+      title="Deposit book"
+      subtitle="FD & RD ladder with maturity radar — bank treasury style."
+      actions={<button className="btn-primary" onClick={() => setShowForm((v) => !v)}>{showForm ? "Cancel" : "Add deposit"}</button>}
+    >
+      <div className="kpi mb-6 max-w-xs">
+        <div className="text-xs uppercase tracking-wider text-[var(--muted)]">Active principal</div>
+        <div className="text-2xl mt-1 tabular-nums" style={{ fontFamily: "var(--font-display), Georgia, serif" }}>{formatINR(book)}</div>
       </div>
-
-      {error && <p className="mb-4 text-[var(--danger)] text-sm">{error}</p>}
-
+      {error && <p className="text-[var(--danger)] text-sm mb-4">{error}</p>}
       {showForm && (
-        <form
-          onSubmit={onCreate}
-          className="mb-8 grid gap-3 sm:grid-cols-2 rounded-[var(--radius)] border border-[var(--line)] bg-[rgba(22,32,28,0.55)] p-5"
-        >
-          <Field name="type" label="Type" as="select">
-            <option value="FD">FD</option>
-            <option value="RD">RD</option>
-          </Field>
-          <Field name="bank_name" label="Bank" placeholder="HDFC / SBI / …" required />
-          <Field name="principal" label="Principal (₹)" type="number" step="0.01" required />
-          <Field name="interest_rate" label="Interest %" type="number" step="0.01" required />
-          <Field name="start_date" label="Start date" type="date" required />
-          <Field name="maturity_date" label="Maturity date" type="date" required />
-          <div className="sm:col-span-2">
-            <button type="submit" className="rounded-xl bg-[var(--accent)] text-[#12160f] font-semibold px-4 py-2.5">
-              Save deposit
-            </button>
-          </div>
+        <form onSubmit={onCreate} className="panel p-5 mb-6 grid gap-3 sm:grid-cols-3">
+          <label><span className="label">Type</span><select className="field" name="type"><option value="FD">FD</option><option value="RD">RD</option></select></label>
+          <label><span className="label">Bank</span><input className="field" name="bank_name" required /></label>
+          <label><span className="label">Principal ₹</span><input className="field" name="principal" type="number" step="0.01" required /></label>
+          <label><span className="label">Interest %</span><input className="field" name="interest_rate" type="number" step="0.01" required /></label>
+          <label><span className="label">Start</span><input className="field" name="start_date" type="date" required /></label>
+          <label><span className="label">Maturity</span><input className="field" name="maturity_date" type="date" required /></label>
+          <div className="sm:col-span-3"><button className="btn-primary" type="submit">Save deposit</button></div>
         </form>
       )}
-
-      <div className="overflow-x-auto rounded-[var(--radius)] border border-[var(--line)]">
-        <table className="w-full text-sm">
-          <thead className="bg-[rgba(0,0,0,0.25)] text-[var(--muted)] text-left">
-            <tr>
-              <th className="px-4 py-3 font-medium">Type</th>
-              <th className="px-4 py-3 font-medium">Bank</th>
-              <th className="px-4 py-3 font-medium">Principal</th>
-              <th className="px-4 py-3 font-medium">Rate</th>
-              <th className="px-4 py-3 font-medium">Matures</th>
-              <th className="px-4 py-3 font-medium">Status</th>
-            </tr>
-          </thead>
+      <div className="panel overflow-x-auto">
+        <table className="table-pro">
+          <thead><tr><th>Type</th><th>Bank</th><th>Principal</th><th>Rate</th><th>Matures</th><th>Status</th></tr></thead>
           <tbody>
             {items.length === 0 ? (
-              <tr>
-                <td colSpan={6} className="px-4 py-10 text-center text-[var(--muted)]">
-                  No deposits yet. Add your first FD or RD.
-                </td>
+              <tr><td colSpan={6} className="text-[var(--muted)]">No deposits yet.</td></tr>
+            ) : items.map((d) => (
+              <tr key={d.id}>
+                <td className="font-semibold">{d.type}</td>
+                <td>{d.bank_name}</td>
+                <td className="tabular-nums font-semibold">{formatINR(d.principal)}</td>
+                <td className="tabular-nums">{d.interest_rate}%</td>
+                <td>{new Date(d.maturity_date).toLocaleDateString("en-IN")}</td>
+                <td className="capitalize text-[var(--accent)]">{d.status}</td>
               </tr>
-            ) : (
-              items.map((d) => (
-                <tr key={d.id} className="border-t border-[var(--line)]">
-                  <td className="px-4 py-3">{d.type}</td>
-                  <td className="px-4 py-3">{d.bank_name}</td>
-                  <td className="px-4 py-3">{formatINR(d.principal)}</td>
-                  <td className="px-4 py-3">{d.interest_rate}%</td>
-                  <td className="px-4 py-3">{new Date(d.maturity_date).toLocaleDateString("en-IN")}</td>
-                  <td className="px-4 py-3 capitalize text-[var(--positive)]">{d.status}</td>
-                </tr>
-              ))
-            )}
+            ))}
           </tbody>
         </table>
       </div>
     </AppShell>
-  );
-}
-
-function Field({
-  name,
-  label,
-  as,
-  children,
-  ...rest
-}: React.InputHTMLAttributes<HTMLInputElement> & {
-  name: string;
-  label: string;
-  as?: "select";
-  children?: React.ReactNode;
-}) {
-  return (
-    <label className="block text-sm">
-      <span className="text-[var(--muted)]">{label}</span>
-      {as === "select" ? (
-        <select
-          name={name}
-          className="mt-1.5 w-full rounded-xl border border-[var(--line)] bg-[rgba(0,0,0,0.25)] px-3 py-2.5"
-        >
-          {children}
-        </select>
-      ) : (
-        <input
-          name={name}
-          className="mt-1.5 w-full rounded-xl border border-[var(--line)] bg-[rgba(0,0,0,0.25)] px-3 py-2.5"
-          {...rest}
-        />
-      )}
-    </label>
   );
 }

@@ -74,15 +74,18 @@ type MFHolding struct {
 }
 
 type Goal struct {
-	ID            uuid.UUID        `json:"id"`
-	PersonID      *uuid.UUID       `json:"person_id,omitempty"`
-	Name          string           `json:"name"`
-	TargetAmount  decimal.Decimal  `json:"target_amount"`
-	CurrentAmount decimal.Decimal  `json:"current_amount"`
-	TargetDate    *time.Time       `json:"target_date,omitempty"`
-	Category      *string          `json:"category,omitempty"`
-	CreatedAt     time.Time        `json:"created_at"`
-	UpdatedAt     time.Time        `json:"updated_at"`
+	ID                  uuid.UUID        `json:"id"`
+	PersonID            *uuid.UUID       `json:"person_id,omitempty"`
+	Name                string           `json:"name"`
+	TargetAmount        decimal.Decimal  `json:"target_amount"`
+	CurrentAmount       decimal.Decimal  `json:"current_amount"`
+	TargetDate          *time.Time       `json:"target_date,omitempty"`
+	Category            *string          `json:"category,omitempty"`
+	GoalType            string           `json:"goal_type"`
+	MonthlyContribution decimal.Decimal  `json:"monthly_contribution"`
+	Priority            int              `json:"priority"`
+	CreatedAt           time.Time        `json:"created_at"`
+	UpdatedAt           time.Time        `json:"updated_at"`
 }
 
 type Policy struct {
@@ -114,12 +117,45 @@ type CashflowEntry struct {
 }
 
 type DashboardSummary struct {
-	TotalDeposits   decimal.Decimal `json:"total_deposits"`
-	TotalMFValue    decimal.Decimal `json:"total_mf_value"`
-	TotalGoalsTarget decimal.Decimal `json:"total_goals_target"`
-	TotalGoalsSaved decimal.Decimal `json:"total_goals_saved"`
-	MonthIncome     decimal.Decimal `json:"month_income"`
-	MonthExpense    decimal.Decimal `json:"month_expense"`
-	UpcomingMaturities int          `json:"upcoming_maturities"`
-	ActivePolicies  int             `json:"active_policies"`
+	TotalDeposits      decimal.Decimal `json:"total_deposits"`
+	TotalMFValue       decimal.Decimal `json:"total_mf_value"`
+	TotalGoalsTarget   decimal.Decimal `json:"total_goals_target"`
+	TotalGoalsSaved    decimal.Decimal `json:"total_goals_saved"`
+	MonthIncome        decimal.Decimal `json:"month_income"`
+	MonthExpense       decimal.Decimal `json:"month_expense"`
+	UpcomingMaturities int             `json:"upcoming_maturities"`
+	ActivePolicies     int             `json:"active_policies"`
+}
+
+type AllocationSlice struct {
+	Name   string          `json:"name"`
+	Value  decimal.Decimal `json:"value"`
+	Weight decimal.Decimal `json:"weight"`
+}
+
+type ActionItem struct {
+	Kind     string `json:"kind"`
+	Title    string `json:"title"`
+	Detail   string `json:"detail"`
+	Severity string `json:"severity"` // info | warn | critical
+	Href     string `json:"href"`
+}
+
+type PortfolioOverview struct {
+	NetWorth           decimal.Decimal   `json:"net_worth"`
+	TotalDeposits      decimal.Decimal   `json:"total_deposits"`
+	TotalMFValue       decimal.Decimal   `json:"total_mf_value"`
+	TotalGoalsTarget   decimal.Decimal   `json:"total_goals_target"`
+	TotalGoalsSaved    decimal.Decimal   `json:"total_goals_saved"`
+	GoalFundingPct     decimal.Decimal   `json:"goal_funding_pct"`
+	MonthIncome        decimal.Decimal   `json:"month_income"`
+	MonthExpense       decimal.Decimal   `json:"month_expense"`
+	MonthSurplus       decimal.Decimal   `json:"month_surplus"`
+	UpcomingMaturities int               `json:"upcoming_maturities"`
+	ActivePolicies     int               `json:"active_policies"`
+	MFCount            int               `json:"mf_count"`
+	Allocation         []AllocationSlice `json:"allocation"`
+	Actions            []ActionItem      `json:"actions"`
+	TopHoldings        []MFHolding       `json:"top_holdings"`
+	Goals              []Goal            `json:"goals"`
 }

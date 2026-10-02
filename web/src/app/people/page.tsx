@@ -1,40 +1,48 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
-import { api, ApiError, User } from "@/lib/api";
+import { api, Person } from "@/lib/api";
+import { useSession } from "@/lib/useSession";
 
 export default function PeoplePage() {
-  const router = useRouter();
-  const [user, setUser] = useState<User | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
+  const { user, loading } = useSession();
+  const [people, setPeople] = useState<Person[]>([]);
 
+  async function load() {
+    setPeople((await api.persons()) || []);
+  }
   useEffect(() => {
-    api.me().then((m) => setUser(m.user)).catch((e) => {
-      if (e instanceof ApiError && (e.status === 401 || e.status === 403)) router.replace("/login");
-    });
-  }, [router]);
+    if (user) load().catch(() => undefined);
+  }, [user]);
 
   async function onCreate(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
     await api.createPerson(String(fd.get("name")), String(fd.get("relation") || "") || undefined);
-    setMsg("Person added.");
     e.currentTarget.reset();
+    await load();
   }
 
-  if (!user) return <div className="min-h-screen grid place-items-center text-[var(--muted)]">Loading…</div>;
+  if (loading || !user) return <div className="min-h-screen grid place-items-center text-[var(--muted)]">Loading…</div>;
 
   return (
-    <AppShell userName={user.name}>
-      <h1 className="text-4xl text-[var(--accent-strong)] mb-6" style={{ fontFamily: "var(--font-display), Georgia, serif" }}>People</h1>
-      <form onSubmit={onCreate} className="flex flex-wrap gap-3 max-w-xl">
-        <input name="name" required placeholder="Name" className="flex-1 rounded-xl border border-[var(--line)] bg-black/25 px-3 py-2.5" />
-        <input name="relation" placeholder="Relation" className="flex-1 rounded-xl border border-[var(--line)] bg-black/25 px-3 py-2.5" />
-        <button className="rounded-xl bg-[var(--accent)] text-[#12160f] font-semibold px-4">Add</button>
+    <AppShell userName={user.name} title="Family members" subtitle="Tag deposits, folios, and goals to people in the household.">
+      <form onSubmit={onCreate} className="panel p-5 mb-6 flex flex-wrap gap-3">
+        <input name="name" required placeholder="Name" className="field max-w-xs" />
+        <input name="relation" placeholder="Self / Spouse / Child" className="field max-w-xs" />
+        <button className="btn-primary">Add member</button>
       </form>
-      {msg && <p className="mt-4 text-[var(--positive)] text-sm">{msg}</p>}
+      <div className="panel overflow-hidden">
+        <table className="table-pro">
+          <thead><tr><th>Name</th><th>Relation</th></tr></thead>
+          <tbody>
+            {people.length === 0 ? <tr><td colSpan={2} className="text-[var(--muted)]">No members yet.</td></tr> : people.map((p) => (
+              <tr key={p.id}><td className="font-medium">{p.name}</td><td>{p.relation || "—"}</td></tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </AppShell>
   );
 }

@@ -1,23 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { AppShell } from "@/components/AppShell";
-import { api, ApiError, User } from "@/lib/api";
+import { api } from "@/lib/api";
+import { useSession } from "@/lib/useSession";
 
 export default function SettingsPage() {
-  const router = useRouter();
-  const [user, setUser] = useState<User | null>(null);
+  const { user, loading } = useSession();
   const [secret, setSecret] = useState<string | null>(null);
   const [qr, setQr] = useState<string | null>(null);
   const [code, setCode] = useState("");
   const [status, setStatus] = useState<string | null>(null);
-
-  useEffect(() => {
-    api.me().then((m) => setUser(m.user)).catch((e) => {
-      if (e instanceof ApiError && (e.status === 401 || e.status === 403)) router.replace("/login");
-    });
-  }, [router]);
 
   async function setup() {
     const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8081"}/api/v1/auth/mfa/setup`, {
@@ -37,43 +30,32 @@ export default function SettingsPage() {
       body: JSON.stringify({ code }),
     });
     setStatus("MFA enabled.");
-    const me = await api.me();
-    setUser(me.user);
   }
 
-  if (!user) return <div className="min-h-screen grid place-items-center text-[var(--muted)]">Loading…</div>;
+  if (loading || !user) return <div className="min-h-screen grid place-items-center text-[var(--muted)]">Loading…</div>;
 
   return (
-    <AppShell userName={user.name}>
-      <h1 className="text-4xl text-[var(--accent-strong)]" style={{ fontFamily: "var(--font-display), Georgia, serif" }}>Security</h1>
-      <p className="mt-3 text-[var(--muted)] max-w-xl">
-        MFA status: {user.mfa_enabled ? "Enabled" : "Not enabled"}. Sensitive fields use AES-256-GCM on the Go API.
-      </p>
-
-      {!user.mfa_enabled && (
-        <div className="mt-8 space-y-4 max-w-md">
-          <button onClick={setup} className="rounded-xl bg-[var(--accent)] text-[#12160f] font-semibold px-4 py-2.5">
-            Set up authenticator
-          </button>
-          {qr && (
-            <div className="rounded-[var(--radius)] border border-[var(--line)] p-4 bg-[rgba(22,32,28,0.55)]">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img alt="MFA QR" src={`data:image/png;base64,${qr}`} className="rounded-lg bg-white p-2" />
-              <p className="mt-3 text-xs text-[var(--muted)] break-all">Secret: {secret}</p>
-              <input
-                className="mt-3 w-full rounded-xl border border-[var(--line)] bg-black/25 px-3 py-2.5"
-                placeholder="6-digit code"
-                value={code}
-                onChange={(e) => setCode(e.target.value)}
-              />
-              <button onClick={enable} className="mt-3 rounded-xl border border-[var(--line)] px-4 py-2 text-sm">
-                Enable MFA
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-      {status && <p className="mt-4 text-[var(--positive)]">{status}</p>}
+    <AppShell userName={user.name} title="Security" subtitle="Session MFA and encryption posture for the vault.">
+      <div className="panel p-6 max-w-xl">
+        <p className="text-sm text-[var(--muted)]">
+          MFA status: <strong className="text-[var(--ink)]">{user.mfa_enabled ? "Enabled" : "Not enabled"}</strong>. Sensitive fields and CAS PDFs use AES-256-GCM.
+        </p>
+        {!user.mfa_enabled && (
+          <div className="mt-6 space-y-4">
+            <button onClick={setup} className="btn-primary">Set up authenticator</button>
+            {qr && (
+              <div className="rounded-xl border border-[var(--line)] p-4 bg-[var(--bg-soft)]">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img alt="MFA QR" src={`data:image/png;base64,${qr}`} className="rounded-lg bg-white p-2" />
+                <p className="mt-3 text-xs text-[var(--muted)] break-all">Secret: {secret}</p>
+                <input className="field mt-3" placeholder="6-digit code" value={code} onChange={(e) => setCode(e.target.value)} />
+                <button onClick={enable} className="btn-ghost mt-3">Enable MFA</button>
+              </div>
+            )}
+          </div>
+        )}
+        {status && <p className="mt-4 text-[var(--accent)]">{status}</p>}
+      </div>
     </AppShell>
   );
 }

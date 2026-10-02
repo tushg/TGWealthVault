@@ -3,8 +3,11 @@ package handlers
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/tushg/TGWealthVault/api/internal/auth"
 	"github.com/tushg/TGWealthVault/api/internal/config"
@@ -16,6 +19,7 @@ type API struct {
 	Cfg     *config.Config
 	Auth    *services.AuthService
 	Finance *services.FinanceService
+	MF      *services.MFService
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -178,6 +182,15 @@ func (a *API) Dashboard(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, sum)
 }
 
+func (a *API) Portfolio(w http.ResponseWriter, r *http.Request) {
+	p, err := a.Finance.Portfolio(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, p)
+}
+
 func (a *API) ListPersons(w http.ResponseWriter, r *http.Request) {
 	items, err := a.Finance.ListPersons(r.Context())
 	if err != nil {
@@ -293,4 +306,92 @@ func (a *API) CreateCashflow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, e)
+}
+
+func (a *API) CreatePolicy(w http.ResponseWriter, r *http.Request) {
+	var in services.CreatePolicyInput
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	p, err := a.Finance.CreatePolicy(r.Context(), in)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, p)
+}
+
+func (a *API) CreateMF(w http.ResponseWriter, r *http.Request) {
+	var in services.CreateMFInput
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	h, err := a.MF.CreateHolding(r.Context(), in)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, h)
+}
+
+func (a *API) ListStatements(w http.ResponseWriter, r *http.Request) {
+	items, err := a.MF.ListStatements(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed")
+		return
+	}
+	if items == nil {
+		writeJSON(w, http.StatusOK, []any{})
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
+func (a *API) ImportMFStatement(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid multipart form")
+		return
+	}
+	source := r.FormValue("source")
+	password := r.FormValue("password")
+	textFallback := r.FormValue("text")
+	var personID *uuid.UUID
+	if pid := r.FormValue("person_id"); pid != "" {
+		id, err := uuid.Parse(pid)
+		if err == nil {
+			personID = &id
+		}
+	}
+
+	var fileBytes []byte
+	filename := "statement.txt"
+	file, header, err := r.FormFile("file")
+	if err == nil {
+		defer file.Close()
+		filename = header.Filename
+		fileBytes, err = io.ReadAll(file)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, "could not read file")
+			return
+		}
+	} else if textFallback == "" {
+		writeErr(w, http.StatusBadRequest, "file or text required")
+		return
+	} else {
+		fileBytes = []byte(textFallback)
+		filename = "pasted-cas.txt"
+	}
+
+	res, err := a.MF.ImportStatement(r.Context(), personID, source, filename, password, fileBytes, textFallback)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "import failed")
+		return
+	}
+	status := http.StatusOK
+	if res.Status == "failed" {
+		status = http.StatusUnprocessableEntity
+	}
+	writeJSON(w, status, res)
 }
