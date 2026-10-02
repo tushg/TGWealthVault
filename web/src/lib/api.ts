@@ -53,6 +53,7 @@ export type PortfolioOverview = {
   upcoming_maturities: number;
   active_policies: number;
   mf_count: number;
+  open_alerts: number;
   allocation: { name: string; value: string; weight: string }[];
   actions: { kind: string; title: string; detail: string; severity: string; href: string }[];
   top_holdings: MFHolding[];
@@ -134,6 +135,18 @@ export type Person = {
   relation?: string;
 };
 
+export type VaultAlert = {
+  id: string;
+  kind: string;
+  severity: string;
+  title: string;
+  detail: string;
+  href?: string;
+  status: string;
+  created_at: string;
+  confirmed_at?: string;
+};
+
 export const api = {
   health: () => request<{ status: string }>("/health"),
   login: (email: string, password: string) =>
@@ -158,6 +171,11 @@ export const api = {
   cashflow: () => request<CashflowEntry[]>("/api/v1/cashflow"),
   persons: () => request<Person[]>("/api/v1/persons"),
   statements: () => request<Record<string, unknown>[]>("/api/v1/mf/statements"),
+  alerts: (status?: string) =>
+    request<VaultAlert[]>(`/api/v1/alerts${status ? `?status=${encodeURIComponent(status)}` : ""}`),
+  alertSummary: () => request<{ open: number }>("/api/v1/alerts/summary"),
+  confirmAlert: (id: string) =>
+    request<VaultAlert>(`/api/v1/alerts/${id}/confirm`, { method: "POST" }),
   createDeposit: (body: Record<string, unknown>) =>
     request<Deposit>("/api/v1/deposits", { method: "POST", body: JSON.stringify(body) }),
   deleteDeposit: (id: string) =>

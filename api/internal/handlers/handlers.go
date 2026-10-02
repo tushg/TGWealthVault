@@ -21,6 +21,7 @@ type API struct {
 	Auth    *services.AuthService
 	Finance *services.FinanceService
 	MF      *services.MFService
+	Alerts  *services.AlertService
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -271,6 +272,40 @@ func (a *API) MarkDepositMatured(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, d)
+}
+
+func (a *API) ListAlerts(w http.ResponseWriter, r *http.Request) {
+	status := r.URL.Query().Get("status")
+	items, err := a.Alerts.List(r.Context(), status)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
+func (a *API) AlertSummary(w http.ResponseWriter, r *http.Request) {
+	_ = a.Alerts.SyncDepositAlerts(r.Context())
+	n, err := a.Alerts.CountOpen(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]int{"open": n})
+}
+
+func (a *API) ConfirmAlert(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	aItem, err := a.Alerts.Confirm(r.Context(), id)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, aItem)
 }
 
 func (a *API) ListGoals(w http.ResponseWriter, r *http.Request) {

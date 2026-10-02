@@ -155,8 +155,24 @@ type PortfolioOverview struct {
 	UpcomingMaturities int               `json:"upcoming_maturities"`
 	ActivePolicies     int               `json:"active_policies"`
 	MFCount            int               `json:"mf_count"`
+	OpenAlerts         int               `json:"open_alerts"`
 	Allocation         []AllocationSlice `json:"allocation"`
 	Actions            []ActionItem      `json:"actions"`
 	TopHoldings        []MFHolding       `json:"top_holdings"`
 	Goals              []Goal            `json:"goals"`
+}
+
+type Alert struct {
+	ID            uuid.UUID  `json:"id"`
+	Kind          string     `json:"kind"`
+	Severity      string     `json:"severity"`
+	Title         string     `json:"title"`
+	Detail        string     `json:"detail"`
+	Href          *string    `json:"href,omitempty"`
+	ReferenceType *string    `json:"reference_type,omitempty"`
+	ReferenceID   *uuid.UUID `json:"reference_id,omitempty"`
+	DedupeKey     string     `json:"dedupe_key"`
+	Status        string     `json:"status"`
+	CreatedAt     time.Time  `json:"created_at"`
+	ConfirmedAt   *time.Time `json:"confirmed_at,omitempty"`
 }

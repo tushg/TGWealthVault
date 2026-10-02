@@ -13,14 +13,19 @@ import {
   LogOut,
   Settings,
   Upload,
+  Bell,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/format";
+import { useEffect, useState } from "react";
 
 const navGroups = [
   {
     label: "Assess",
-    items: [{ href: "/portfolio", label: "Portfolio", icon: BriefcaseBusiness }],
+    items: [
+      { href: "/portfolio", label: "Portfolio", icon: BriefcaseBusiness },
+      { href: "/alerts", label: "Alerts", icon: Bell, badgeKey: "alerts" as const },
+    ],
   },
   {
     label: "Allocate",
@@ -62,6 +67,19 @@ export function AppShell({
 }) {
   const pathname = usePathname();
   const router = useRouter();
+  const [openAlerts, setOpenAlerts] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.alertSummary()
+      .then((s) => {
+        if (!cancelled) setOpenAlerts(s.open || 0);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname]);
 
   async function logout() {
     try {
@@ -90,6 +108,7 @@ export function AppShell({
                 {group.items.map((item) => {
                   const Icon = item.icon;
                   const active = pathname === item.href || (item.href !== "/portfolio" && pathname.startsWith(item.href));
+                  const badge = "badgeKey" in item && item.badgeKey === "alerts" ? openAlerts : 0;
                   return (
                     <Link
                       key={item.href}
@@ -100,7 +119,12 @@ export function AppShell({
                       )}
                     >
                       <Icon size={16} />
-                      {item.label}
+                      <span className="flex-1">{item.label}</span>
+                      {badge > 0 && (
+                        <span className="min-w-5 h-5 px-1.5 rounded-full bg-[#e8a45c] text-[#073560] text-[11px] font-bold grid place-items-center">
+                          {badge > 99 ? "99+" : badge}
+                        </span>
+                      )}
                     </Link>
                   );
                 })}

@@ -49,9 +49,10 @@ func main() {
 		log.Fatalf("seed admin: %v", err)
 	}
 
-	finSvc := services.NewFinanceService(pool)
+	alertSvc := services.NewAlertService(pool)
+	finSvc := services.NewFinanceService(pool, alertSvc)
 	mfSvc := services.NewMFService(pool, box, "uploads")
-	api := &handlers.API{Cfg: cfg, Auth: authSvc, Finance: finSvc, MF: mfSvc}
+	api := &handlers.API{Cfg: cfg, Auth: authSvc, Finance: finSvc, MF: mfSvc, Alerts: alertSvc}
 
 	authLimiter := middleware.NewIPRateLimiter(rate.Every(time.Minute/10), 20) // ~10/min, burst 20
 
@@ -96,6 +97,9 @@ func main() {
 			r.Post("/deposits", api.CreateDeposit)
 			r.Delete("/deposits/{id}", api.DeleteDeposit)
 			r.Post("/deposits/{id}/mature", api.MarkDepositMatured)
+			r.Get("/alerts", api.ListAlerts)
+			r.Get("/alerts/summary", api.AlertSummary)
+			r.Post("/alerts/{id}/confirm", api.ConfirmAlert)
 			r.Get("/goals", api.ListGoals)
 			r.Post("/goals", api.CreateGoal)
 			r.Get("/mf", api.ListMF)

@@ -15,11 +15,24 @@ import (
 )
 
 type FinanceService struct {
-	pool *pgxpool.Pool
+	pool   *pgxpool.Pool
+	alerts *AlertService
 }
 
-func NewFinanceService(pool *pgxpool.Pool) *FinanceService {
-	return &FinanceService{pool: pool}
+func NewFinanceService(pool *pgxpool.Pool, alerts *AlertService) *FinanceService {
+	return &FinanceService{pool: pool, alerts: alerts}
+}
+
+func (s *FinanceService) SyncMaturedDeposits(ctx context.Context) error {
+	if s.alerts != nil {
+		return s.alerts.SyncDepositAlerts(ctx)
+	}
+	_, err := s.pool.Exec(ctx, `
+		UPDATE deposits
+		SET status = 'matured', updated_at = NOW()
+		WHERE status = 'active' AND maturity_date::date <= CURRENT_DATE
+	`)
+	return err
 }
 
 func (s *FinanceService) Dashboard(ctx context.Context) (*models.DashboardSummary, error) {
@@ -64,6 +77,9 @@ func (s *FinanceService) Portfolio(ctx context.Context) (*models.PortfolioOvervi
 	_ = s.pool.QueryRow(ctx, `SELECT COALESCE(SUM(amount),0) FROM cashflow_entries WHERE type='expense' AND entry_month=$1`, monthStart).Scan(&p.MonthExpense)
 	_ = s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM deposits WHERE status='active' AND maturity_date <= CURRENT_DATE + INTERVAL '30 days'`).Scan(&p.UpcomingMaturities)
 	_ = s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM policies WHERE status='active'`).Scan(&p.ActivePolicies)
+	if s.alerts != nil {
+		p.OpenAlerts, _ = s.alerts.CountOpen(ctx)
+	}
 
 	p.NetWorth = p.TotalDeposits.Add(p.TotalMFValue)
 	p.MonthSurplus = p.MonthIncome.Sub(p.MonthExpense)
@@ -84,6 +100,11 @@ func (s *FinanceService) Portfolio(ctx context.Context) (*models.PortfolioOvervi
 	addAlloc("Fixed deposits", p.TotalDeposits)
 	addAlloc("Mutual funds", p.TotalMFValue)
 
+	if p.OpenAlerts > 0 {
+		p.Actions = append([]models.ActionItem{{
+			Kind: "alerts", Title: fmt.Sprintf("%d open alert(s)", p.OpenAlerts), Detail: "Confirm maturity and vault notices in Alerts.", Severity: "warn", Href: "/alerts",
+		}}, p.Actions...)
+	}
 	if p.MFCount == 0 {
 		p.Actions = append(p.Actions, models.ActionItem{
 			Kind: "import", Title: "Import CAMS / KFin CAS", Detail: "Upload your consolidated account statement to load folios.", Severity: "info", Href: "/import",
@@ -154,15 +175,6 @@ func (s *FinanceService) CreatePerson(ctx context.Context, name string, relation
 		return nil, err
 	}
 	return &p, nil
-}
-
-func (s *FinanceService) SyncMaturedDeposits(ctx context.Context) error {
-	_, err := s.pool.Exec(ctx, `
-		UPDATE deposits
-		SET status = 'matured', updated_at = NOW()
-		WHERE status = 'active' AND maturity_date::date < CURRENT_DATE
-	`)
-	return err
 }
 
 func (s *FinanceService) ListDeposits(ctx context.Context, status string) ([]models.Deposit, error) {
@@ -268,6 +280,9 @@ func (s *FinanceService) MarkDepositMatured(ctx context.Context, id uuid.UUID) (
 	)
 	if err != nil {
 		return nil, err
+	}
+	if s.alerts != nil {
+		_ = s.alerts.NotifyDepositMatured(ctx, &d)
 	}
 	return &d, nil
 }
