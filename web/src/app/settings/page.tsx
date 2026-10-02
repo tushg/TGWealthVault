@@ -20,7 +20,7 @@ export default function SettingsPage() {
   }, [router]);
 
   async function setup() {
-    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080"}/api/v1/auth/mfa/setup`, {
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8081"}/api/v1/auth/mfa/setup`, {
       method: "POST",
       credentials: "include",
     });
@@ -30,7 +30,7 @@ export default function SettingsPage() {
   }
 
   async function enable() {
-    await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080"}/api/v1/auth/mfa/enable`, {
+    await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8081"}/api/v1/auth/mfa/enable`, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },

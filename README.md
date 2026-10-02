@@ -41,7 +41,7 @@ npm run dev
 ```
 
 - UI: http://localhost:3000  
-- API health: http://localhost:8080/health  
+- API health: http://localhost:8081/health (8080 often used by Jenkins locally)
 - Default admin (change in `.env`): `admin@tgwealthvault.local` / `ChangeMeNow!123`
 
 ## Repository

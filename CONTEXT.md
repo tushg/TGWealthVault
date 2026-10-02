@@ -53,8 +53,9 @@ Access: open site from anywhere → sign in → see data. **No public signup** (
 ## Development workflow
 1. **Build and run entirely locally first** (Go API + Next.js + local Postgres).
 2. Use the machine’s installed Go version (`go1.25.x`) — do not upgrade Go unless asked.
-3. When the full application is complete, **ask before deploying** to Vercel + Neon + Render/Fly.
-4. Commit and push to: https://github.com/tushg/TGWealthVault
+3. Default local API port is **8081** (avoid clash with other local services on 8080).
+4. When the full application is complete, **ask before deploying** to Vercel + Neon + Render/Fly.
+5. Commit and push to: https://github.com/tushg/TGWealthVault
 
 ## UI direction
 UI must feel excellent — clear, useful dashboards and charts. Draw inspiration from leading personal-finance products (Groww, Zerodha Console, Mint/YNAB-style clarity) without copying proprietary assets. Prefer one composed dashboard hierarchy, strong typography, and purposeful motion — not a generic card-grid template.
