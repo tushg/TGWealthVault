@@ -74,6 +74,7 @@ export type Deposit = {
   id: string;
   type: string;
   bank_name: string;
+  fd_number?: string;
   principal: string;
   interest_rate: string;
   start_date: string;
@@ -149,7 +150,8 @@ export const api = {
   me: () => request<{ user: User; mfa_verified: boolean }>("/api/v1/auth/me"),
   dashboard: () => request<DashboardSummary>("/api/v1/dashboard"),
   portfolio: () => request<PortfolioOverview>("/api/v1/portfolio"),
-  deposits: () => request<Deposit[]>("/api/v1/deposits"),
+  deposits: (status?: string) =>
+    request<Deposit[]>(`/api/v1/deposits${status ? `?status=${encodeURIComponent(status)}` : ""}`),
   goals: () => request<Goal[]>("/api/v1/goals"),
   mf: () => request<MFHolding[]>("/api/v1/mf"),
   policies: () => request<Policy[]>("/api/v1/policies"),
@@ -158,6 +160,10 @@ export const api = {
   statements: () => request<Record<string, unknown>[]>("/api/v1/mf/statements"),
   createDeposit: (body: Record<string, unknown>) =>
     request<Deposit>("/api/v1/deposits", { method: "POST", body: JSON.stringify(body) }),
+  deleteDeposit: (id: string) =>
+    request<{ status: string }>(`/api/v1/deposits/${id}`, { method: "DELETE" }),
+  matureDeposit: (id: string) =>
+    request<Deposit>(`/api/v1/deposits/${id}/mature`, { method: "POST" }),
   createGoal: (body: Record<string, unknown>) =>
     request<Goal>("/api/v1/goals", { method: "POST", body: JSON.stringify(body) }),
   createMF: (body: Record<string, unknown>) =>

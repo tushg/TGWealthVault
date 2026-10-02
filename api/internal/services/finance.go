@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -39,6 +40,8 @@ func (s *FinanceService) Dashboard(ctx context.Context) (*models.DashboardSummar
 }
 
 func (s *FinanceService) Portfolio(ctx context.Context) (*models.PortfolioOverview, error) {
+	_ = s.SyncMaturedDeposits(ctx)
+
 	p := &models.PortfolioOverview{
 		TotalDeposits:    decimal.Zero,
 		TotalMFValue:     decimal.Zero,
@@ -153,12 +156,31 @@ func (s *FinanceService) CreatePerson(ctx context.Context, name string, relation
 	return &p, nil
 }
 
-func (s *FinanceService) ListDeposits(ctx context.Context) ([]models.Deposit, error) {
-	rows, err := s.pool.Query(ctx, `
-		SELECT id, person_id, type, bank_name, principal, interest_rate, start_date, maturity_date,
-		       maturity_amount, compounding, status, alert_days_before, created_at, updated_at
-		FROM deposits ORDER BY maturity_date
+func (s *FinanceService) SyncMaturedDeposits(ctx context.Context) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE deposits
+		SET status = 'matured', updated_at = NOW()
+		WHERE status = 'active' AND maturity_date::date < CURRENT_DATE
 	`)
+	return err
+}
+
+func (s *FinanceService) ListDeposits(ctx context.Context, status string) ([]models.Deposit, error) {
+	_ = s.SyncMaturedDeposits(ctx)
+
+	q := `
+		SELECT id, person_id, type, bank_name, fd_number, principal, interest_rate, start_date, maturity_date,
+		       maturity_amount, compounding, status, alert_days_before, created_at, updated_at
+		FROM deposits`
+	args := []any{}
+	switch status {
+	case "active", "matured", "closed":
+		q += ` WHERE status = $1`
+		args = append(args, status)
+	}
+	q += ` ORDER BY CASE status WHEN 'active' THEN 0 WHEN 'matured' THEN 1 ELSE 2 END, maturity_date`
+
+	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -166,12 +188,15 @@ func (s *FinanceService) ListDeposits(ctx context.Context) ([]models.Deposit, er
 	var out []models.Deposit
 	for rows.Next() {
 		var d models.Deposit
-		if err := rows.Scan(&d.ID, &d.PersonID, &d.Type, &d.BankName, &d.Principal, &d.InterestRate,
+		if err := rows.Scan(&d.ID, &d.PersonID, &d.Type, &d.BankName, &d.FDNumber, &d.Principal, &d.InterestRate,
 			&d.StartDate, &d.MaturityDate, &d.MaturityAmount, &d.Compounding, &d.Status,
 			&d.AlertDaysBefore, &d.CreatedAt, &d.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, d)
+	}
+	if out == nil {
+		out = []models.Deposit{}
 	}
 	return out, rows.Err()
 }
@@ -180,6 +205,7 @@ type CreateDepositInput struct {
 	PersonID        *uuid.UUID       `json:"person_id"`
 	Type            string           `json:"type"`
 	BankName        string           `json:"bank_name"`
+	FDNumber        *string          `json:"fd_number"`
 	Principal       decimal.Decimal  `json:"principal"`
 	InterestRate    decimal.Decimal  `json:"interest_rate"`
 	StartDate       time.Time        `json:"start_date"`
@@ -193,22 +219,68 @@ func (s *FinanceService) CreateDeposit(ctx context.Context, in CreateDepositInpu
 	if in.AlertDaysBefore <= 0 {
 		in.AlertDaysBefore = 14
 	}
+	status := "active"
+	today := time.Now().In(in.MaturityDate.Location()).Truncate(24 * time.Hour)
+	matDay := in.MaturityDate.Truncate(24 * time.Hour)
+	if !matDay.After(today) {
+		status = "matured"
+	}
+
 	var d models.Deposit
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO deposits (person_id, type, bank_name, principal, interest_rate, start_date, maturity_date,
-		                      maturity_amount, compounding, alert_days_before)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-		RETURNING id, person_id, type, bank_name, principal, interest_rate, start_date, maturity_date,
+		INSERT INTO deposits (person_id, type, bank_name, fd_number, principal, interest_rate, start_date, maturity_date,
+		                      maturity_amount, compounding, alert_days_before, status)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+		RETURNING id, person_id, type, bank_name, fd_number, principal, interest_rate, start_date, maturity_date,
 		          maturity_amount, compounding, status, alert_days_before, created_at, updated_at
-	`, in.PersonID, in.Type, in.BankName, in.Principal, in.InterestRate, in.StartDate, in.MaturityDate,
-		in.MaturityAmount, in.Compounding, in.AlertDaysBefore).Scan(
-		&d.ID, &d.PersonID, &d.Type, &d.BankName, &d.Principal, &d.InterestRate, &d.StartDate, &d.MaturityDate,
+	`, in.PersonID, in.Type, in.BankName, nullEmptyStr(in.FDNumber), in.Principal, in.InterestRate, in.StartDate, in.MaturityDate,
+		in.MaturityAmount, in.Compounding, in.AlertDaysBefore, status).Scan(
+		&d.ID, &d.PersonID, &d.Type, &d.BankName, &d.FDNumber, &d.Principal, &d.InterestRate, &d.StartDate, &d.MaturityDate,
 		&d.MaturityAmount, &d.Compounding, &d.Status, &d.AlertDaysBefore, &d.CreatedAt, &d.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
 	}
 	return &d, nil
+}
+
+func (s *FinanceService) DeleteDeposit(ctx context.Context, id uuid.UUID) error {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM deposits WHERE id = $1`, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("deposit not found")
+	}
+	return nil
+}
+
+func (s *FinanceService) MarkDepositMatured(ctx context.Context, id uuid.UUID) (*models.Deposit, error) {
+	var d models.Deposit
+	err := s.pool.QueryRow(ctx, `
+		UPDATE deposits SET status = 'matured', updated_at = NOW()
+		WHERE id = $1
+		RETURNING id, person_id, type, bank_name, fd_number, principal, interest_rate, start_date, maturity_date,
+		          maturity_amount, compounding, status, alert_days_before, created_at, updated_at
+	`, id).Scan(
+		&d.ID, &d.PersonID, &d.Type, &d.BankName, &d.FDNumber, &d.Principal, &d.InterestRate, &d.StartDate, &d.MaturityDate,
+		&d.MaturityAmount, &d.Compounding, &d.Status, &d.AlertDaysBefore, &d.CreatedAt, &d.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &d, nil
+}
+
+func nullEmptyStr(s *string) *string {
+	if s == nil {
+		return nil
+	}
+	v := strings.TrimSpace(*s)
+	if v == "" {
+		return nil
+	}
+	return &v
 }
 
 func (s *FinanceService) ListGoals(ctx context.Context) ([]models.Goal, error) {

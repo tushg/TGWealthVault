@@ -94,6 +94,8 @@ func main() {
 			r.Post("/persons", api.CreatePerson)
 			r.Get("/deposits", api.ListDeposits)
 			r.Post("/deposits", api.CreateDeposit)
+			r.Delete("/deposits/{id}", api.DeleteDeposit)
+			r.Post("/deposits/{id}/mature", api.MarkDepositMatured)
 			r.Get("/goals", api.ListGoals)
 			r.Post("/goals", api.CreateGoal)
 			r.Get("/mf", api.ListMF)

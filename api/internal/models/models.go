@@ -44,6 +44,7 @@ type Deposit struct {
 	PersonID        *uuid.UUID       `json:"person_id,omitempty"`
 	Type            string           `json:"type"`
 	BankName        string           `json:"bank_name"`
+	FDNumber        *string          `json:"fd_number,omitempty"`
 	Principal       decimal.Decimal  `json:"principal"`
 	InterestRate    decimal.Decimal  `json:"interest_rate"`
 	StartDate       time.Time        `json:"start_date"`

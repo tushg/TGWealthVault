@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
 	"github.com/tushg/TGWealthVault/api/internal/auth"
@@ -222,7 +223,8 @@ func (a *API) CreatePerson(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) ListDeposits(w http.ResponseWriter, r *http.Request) {
-	items, err := a.Finance.ListDeposits(r.Context())
+	status := r.URL.Query().Get("status")
+	items, err := a.Finance.ListDeposits(r.Context(), status)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed")
 		return
@@ -242,6 +244,33 @@ func (a *API) CreateDeposit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, d)
+}
+
+func (a *API) DeleteDeposit(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	if err := a.Finance.DeleteDeposit(r.Context(), id); err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+func (a *API) MarkDepositMatured(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	d, err := a.Finance.MarkDepositMatured(r.Context(), id)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "deposit not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, d)
 }
 
 func (a *API) ListGoals(w http.ResponseWriter, r *http.Request) {
