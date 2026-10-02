@@ -14,6 +14,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     headers.set("Content-Type", "application/json");
   }
   const res = await fetch(`${API_URL}${path}`, {
+    cache: "no-store",
     ...init,
     credentials: "include",
     headers,
@@ -127,6 +128,61 @@ export type CashflowEntry = {
   amount: string;
   entry_month: string;
   recurring: boolean;
+  budget_id?: string;
+};
+
+export type ExpenseBudget = {
+  id: string;
+  name: string;
+  allocated_amount: string;
+  notes?: string;
+  active: boolean;
+  sort_order: number;
+};
+
+export type ExpenseDeviation = {
+  budget_id: string;
+  name: string;
+  budget_amount: string;
+  actual_amount: string;
+  deviation: string;
+  deviation_pct: string;
+  abs_deviation: string;
+};
+
+export type ExpenseGrowth = {
+  budget_id: string;
+  name: string;
+  first_amount: string;
+  last_amount: string;
+  absolute_growth: string;
+  growth_pct: string;
+  direction: "up" | "down" | "flat" | string;
+};
+
+export type ExpenseTrend = {
+  buckets: string[];
+  totals: string[];
+  series: { name: string; points: string[] }[];
+};
+
+export type ExpenseReport = {
+  period: string;
+  label: string;
+  from: string;
+  to: string;
+  year: number;
+  month?: number;
+  months_covered: number;
+  total_budget: string;
+  total_actual: string;
+  total_deviation: string;
+  items: ExpenseDeviation[];
+  top_deviations: ExpenseDeviation[];
+  trend: ExpenseTrend;
+  growth: ExpenseGrowth[];
+  top_growing: ExpenseGrowth[];
+  history: string[];
 };
 
 export type MFTransaction = {
@@ -140,6 +196,16 @@ export type MFTransaction = {
   units?: string;
   nav?: string;
   balance_units?: string;
+};
+
+export type GoalAsset = {
+  goal_id: string;
+  goal_name: string;
+  asset_type: string;
+  asset_id: string;
+  asset_name: string;
+  allocated_amount?: string;
+  asset_value?: string;
 };
 
 export type Person = {
@@ -181,7 +247,15 @@ export const api = {
   goals: () => request<Goal[]>("/api/v1/goals"),
   mf: () => request<MFHolding[]>("/api/v1/mf"),
   policies: () => request<Policy[]>("/api/v1/policies"),
-  cashflow: () => request<CashflowEntry[]>("/api/v1/cashflow"),
+  cashflow: (params?: { type?: string; from?: string; to?: string; month?: string }) => {
+    const q = new URLSearchParams();
+    if (params?.type) q.set("type", params.type);
+    if (params?.from) q.set("from", params.from);
+    if (params?.to) q.set("to", params.to);
+    if (params?.month) q.set("month", params.month);
+    const qs = q.toString();
+    return request<CashflowEntry[]>(`/api/v1/cashflow${qs ? `?${qs}` : ""}`);
+  },
   persons: () => request<Person[]>("/api/v1/persons"),
   statements: () => request<Record<string, unknown>[]>("/api/v1/mf/statements"),
   alerts: (status?: string) =>
@@ -197,8 +271,16 @@ export const api = {
     request<Deposit>(`/api/v1/deposits/${id}/mature`, { method: "POST" }),
   createGoal: (body: Record<string, unknown>) =>
     request<Goal>("/api/v1/goals", { method: "POST", body: JSON.stringify(body) }),
+  updateGoal: (id: string, body: Record<string, unknown>) =>
+    request<Goal>(`/api/v1/goals/${id}`, { method: "PUT", body: JSON.stringify(body) }),
   deleteGoal: (id: string) =>
     request<{ status: string }>(`/api/v1/goals/${id}`, { method: "DELETE" }),
+  goalAssets: (goalId?: string) =>
+    request<GoalAsset[]>(goalId ? `/api/v1/goals/${goalId}/assets` : "/api/v1/goal-assets"),
+  linkGoalAsset: (goalId: string, body: { asset_type: string; asset_id: string; allocated_amount?: string | null }) =>
+    request<GoalAsset>(`/api/v1/goals/${goalId}/assets`, { method: "POST", body: JSON.stringify(body) }),
+  unlinkGoalAsset: (goalId: string, assetType: string, assetId: string) =>
+    request<{ status: string }>(`/api/v1/goals/${goalId}/assets/${assetType}/${assetId}`, { method: "DELETE" }),
   createMF: (body: Record<string, unknown>) =>
     request<MFHolding>("/api/v1/mf", { method: "POST", body: JSON.stringify(body) }),
   deleteMF: (id: string) =>
@@ -215,6 +297,31 @@ export const api = {
     request<CashflowEntry>("/api/v1/cashflow", { method: "POST", body: JSON.stringify(body) }),
   deleteCashflow: (id: string) =>
     request<{ status: string }>(`/api/v1/cashflow/${id}`, { method: "DELETE" }),
+  expenseBudgets: () => request<ExpenseBudget[]>("/api/v1/expense-budgets"),
+  createExpenseBudget: (body: Record<string, unknown>) =>
+    request<ExpenseBudget>("/api/v1/expense-budgets", { method: "POST", body: JSON.stringify(body) }),
+  updateExpenseBudget: (id: string, body: Record<string, unknown>) =>
+    request<ExpenseBudget>(`/api/v1/expense-budgets/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+  deleteExpenseBudget: (id: string) =>
+    request<{ status: string }>(`/api/v1/expense-budgets/${id}`, { method: "DELETE" }),
+  expenseReport: (params: {
+    period: string;
+    from?: string;
+    to?: string;
+    year?: number;
+    month?: number;
+  }) => {
+    const q = new URLSearchParams({ period: params.period });
+    if (params.from) q.set("from", params.from);
+    if (params.to) q.set("to", params.to);
+    if (params.year) q.set("year", String(params.year));
+    if (params.month) q.set("month", String(params.month));
+    return request<ExpenseReport>(`/api/v1/expense-report?${q}`);
+  },
+  seedExpenseDemoData: () =>
+    request<{ status: string; stats: Record<string, number> }>("/api/v1/expense-report/demo-data", {
+      method: "POST",
+    }),
   createPerson: (name: string, relation?: string) =>
     request("/api/v1/persons", {
       method: "POST",

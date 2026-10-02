@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/AppShell";
-import { api, Deposit } from "@/lib/api";
+import { api, Deposit, Goal, GoalAsset } from "@/lib/api";
 import { formatINR } from "@/lib/format";
 import { useSession } from "@/lib/useSession";
 
@@ -11,6 +11,8 @@ type Filter = "active" | "matured" | "all";
 export default function DepositsPage() {
   const { user, loading } = useSession();
   const [items, setItems] = useState<Deposit[]>([]);
+  const [goals, setGoals] = useState<Goal[]>([]);
+  const [links, setLinks] = useState<GoalAsset[]>([]);
   const [filter, setFilter] = useState<Filter>("active");
   const [showForm, setShowForm] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -18,13 +20,30 @@ export default function DepositsPage() {
 
   async function load(nextFilter: Filter = filter) {
     const status = nextFilter === "all" ? undefined : nextFilter;
-    setItems((await api.deposits(status)) || []);
+    const [deposits, g, assets] = await Promise.all([
+      api.deposits(status),
+      api.goals(),
+      api.goalAssets(),
+    ]);
+    setItems(deposits || []);
+    setGoals(g || []);
+    setLinks(assets || []);
   }
 
   useEffect(() => {
     if (user) load(filter).catch((e) => setError(e.message));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, filter]);
+
+  const goalByDeposit = useMemo(() => {
+    const m: Record<string, GoalAsset | undefined> = {};
+    for (const l of links) {
+      if (l.asset_type !== "deposit") continue;
+      // One investment → one goal; keep first if duplicates remain.
+      if (!m[l.asset_id]) m[l.asset_id] = l;
+    }
+    return m;
+  }, [links]);
 
   async function onCreate(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -75,6 +94,27 @@ export default function DepositsPage() {
       setError(err instanceof Error ? err.message : "Update failed");
     } finally {
       setBusyId(null);
+    }
+  }
+
+  async function tagGoal(depositId: string, goalId: string) {
+    if (!goalId) return;
+    setError(null);
+    try {
+      await api.linkGoalAsset(goalId, { asset_type: "deposit", asset_id: depositId });
+      await load(filter);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not tag goal");
+    }
+  }
+
+  async function untagGoal(goalId: string, depositId: string) {
+    setError(null);
+    try {
+      await api.unlinkGoalAsset(goalId, "deposit", depositId);
+      await load(filter);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not remove tag");
     }
   }
 
@@ -156,48 +196,82 @@ export default function DepositsPage() {
               <th>Rate</th>
               <th>Matures</th>
               <th>Status</th>
+              <th>Tagged goal</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody>
             {items.length === 0 ? (
-              <tr><td colSpan={8} className="text-[var(--muted)]">No {filter === "all" ? "" : filter + " "}deposits.</td></tr>
-            ) : items.map((d) => (
-              <tr key={d.id} className={d.status === "matured" ? "opacity-75" : undefined}>
-                <td className="font-semibold">{d.type}</td>
-                <td>
-                  <div>{d.bank_name}</div>
-                  <div className="text-xs text-[var(--muted)]">{d.fd_number || "No FD number"}</div>
-                </td>
-                <td className="tabular-nums font-semibold">{formatINR(d.principal)}</td>
-                <td className="tabular-nums">{d.maturity_amount ? formatINR(d.maturity_amount) : "—"}</td>
-                <td className="tabular-nums">{d.interest_rate}%</td>
-                <td>{new Date(d.maturity_date).toLocaleDateString("en-IN")}</td>
-                <td className={`capitalize font-medium ${d.status === "active" ? "text-[var(--accent)]" : "text-[var(--muted)]"}`}>{d.status}</td>
-                <td>
-                  <div className="flex flex-wrap gap-2">
-                    {d.status === "active" && (
+              <tr><td colSpan={9} className="text-[var(--muted)]">No {filter === "all" ? "" : filter + " "}deposits.</td></tr>
+            ) : items.map((d) => {
+              const tagged = goalByDeposit[d.id];
+              return (
+                <tr key={d.id} className={d.status === "matured" ? "opacity-75" : undefined}>
+                  <td className="font-semibold">{d.type}</td>
+                  <td>
+                    <div>{d.bank_name}</div>
+                    <div className="text-xs text-[var(--muted)]">{d.fd_number || "No FD number"}</div>
+                  </td>
+                  <td className="tabular-nums font-semibold">{formatINR(d.principal)}</td>
+                  <td className="tabular-nums">{d.maturity_amount ? formatINR(d.maturity_amount) : "—"}</td>
+                  <td className="tabular-nums">{d.interest_rate}%</td>
+                  <td>{new Date(d.maturity_date).toLocaleDateString("en-IN")}</td>
+                  <td className={`capitalize font-medium ${d.status === "active" ? "text-[var(--accent)]" : "text-[var(--muted)]"}`}>{d.status}</td>
+                  <td>
+                    <div className="space-y-1.5 min-w-[160px]">
+                      {tagged ? (
+                        <div className="flex items-center gap-2 text-sm">
+                          <span>{tagged.goal_name}</span>
+                          <button
+                            type="button"
+                            className="text-xs text-[var(--danger)]"
+                            onClick={() => untagGoal(tagged.goal_id, d.id)}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ) : (
+                        <select
+                          className="field text-sm py-1.5"
+                          defaultValue=""
+                          onChange={(e) => {
+                            tagGoal(d.id, e.target.value);
+                            e.target.value = "";
+                          }}
+                        >
+                          <option value="">Tag to goal…</option>
+                          {goals.map((g) => (
+                            <option key={g.id} value={g.id}>{g.name}</option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                  </td>
+                  <td>
+                    <div className="flex flex-wrap gap-2">
+                      {d.status === "active" && (
+                        <button
+                          type="button"
+                          className="btn-ghost text-xs py-1.5 px-2.5"
+                          disabled={busyId === d.id}
+                          onClick={() => onMature(d.id)}
+                        >
+                          Mark matured
+                        </button>
+                      )}
                       <button
                         type="button"
-                        className="btn-ghost text-xs py-1.5 px-2.5"
+                        className="btn-ghost text-xs py-1.5 px-2.5 text-[var(--danger)] border-[rgba(180,35,24,0.35)]"
                         disabled={busyId === d.id}
-                        onClick={() => onMature(d.id)}
+                        onClick={() => onDelete(d.id)}
                       >
-                        Mark matured
+                        Delete
                       </button>
-                    )}
-                    <button
-                      type="button"
-                      className="btn-ghost text-xs py-1.5 px-2.5 text-[var(--danger)] border-[rgba(180,35,24,0.35)]"
-                      disabled={busyId === d.id}
-                      onClick={() => onDelete(d.id)}
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

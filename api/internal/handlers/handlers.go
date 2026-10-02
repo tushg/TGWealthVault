@@ -5,10 +5,12 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 
 	"github.com/tushg/TGWealthVault/api/internal/auth"
 	"github.com/tushg/TGWealthVault/api/internal/config"
@@ -357,6 +359,98 @@ func (a *API) DeleteGoal(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
+func (a *API) UpdateGoal(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	var in services.UpdateGoalInput
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	g, err := a.Finance.UpdateGoal(r.Context(), id, in)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, g)
+}
+
+func (a *API) ListGoalAssets(w http.ResponseWriter, r *http.Request) {
+	var goalID *uuid.UUID
+	if raw := chi.URLParam(r, "id"); raw != "" {
+		id, err := uuid.Parse(raw)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, "invalid id")
+			return
+		}
+		goalID = &id
+	}
+	items, err := a.Finance.ListGoalAssets(r.Context(), goalID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
+func (a *API) LinkGoalAsset(w http.ResponseWriter, r *http.Request) {
+	goalID, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	var body struct {
+		AssetType       string           `json:"asset_type"`
+		AssetID         uuid.UUID        `json:"asset_id"`
+		AllocatedAmount *decimal.Decimal `json:"allocated_amount"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if body.AssetType == "" || body.AssetID == uuid.Nil {
+		writeErr(w, http.StatusBadRequest, "asset_type and asset_id required")
+		return
+	}
+	item, err := a.Finance.LinkGoalAsset(r.Context(), goalID, body.AssetType, body.AssetID, body.AllocatedAmount)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (a *API) UnlinkGoalAsset(w http.ResponseWriter, r *http.Request) {
+	goalID, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	assetType := chi.URLParam(r, "assetType")
+	assetID, err := uuid.Parse(chi.URLParam(r, "assetId"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid asset id")
+		return
+	}
+	if err := a.Finance.UnlinkGoalAsset(r.Context(), goalID, assetType, assetID); err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "unlinked"})
+}
+
+func (a *API) ListAllGoalAssets(w http.ResponseWriter, r *http.Request) {
+	items, err := a.Finance.ListGoalAssets(r.Context(), nil)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
 func (a *API) ListMF(w http.ResponseWriter, r *http.Request) {
 	items, err := a.Finance.ListMF(r.Context())
 	if err != nil {
@@ -376,9 +470,15 @@ func (a *API) ListPolicies(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) ListCashflow(w http.ResponseWriter, r *http.Request) {
-	items, err := a.Finance.ListCashflow(r.Context())
+	q := services.CashflowQuery{
+		Type:  r.URL.Query().Get("type"),
+		From:  r.URL.Query().Get("from"),
+		To:    r.URL.Query().Get("to"),
+		Month: r.URL.Query().Get("month"),
+	}
+	items, err := a.Finance.ListCashflow(r.Context(), q)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "failed")
+		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, items)
@@ -409,6 +509,91 @@ func (a *API) DeleteCashflow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+func (a *API) ListExpenseBudgets(w http.ResponseWriter, r *http.Request) {
+	items, err := a.Finance.ListExpenseBudgets(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
+func (a *API) CreateExpenseBudget(w http.ResponseWriter, r *http.Request) {
+	var in services.CreateExpenseBudgetInput
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	item, err := a.Finance.CreateExpenseBudget(r.Context(), in)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, item)
+}
+
+func (a *API) UpdateExpenseBudget(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	var in services.UpdateExpenseBudgetInput
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	item, err := a.Finance.UpdateExpenseBudget(r.Context(), id, in)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (a *API) DeleteExpenseBudget(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	if err := a.Finance.DeleteExpenseBudget(r.Context(), id); err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+func (a *API) ExpenseReport(w http.ResponseWriter, r *http.Request) {
+	q := services.ExpenseReportQuery{
+		Period: r.URL.Query().Get("period"),
+		From:   r.URL.Query().Get("from"),
+		To:     r.URL.Query().Get("to"),
+	}
+	q.Year, _ = strconv.Atoi(r.URL.Query().Get("year"))
+	if m := r.URL.Query().Get("month"); m != "" {
+		mv, err := strconv.Atoi(m)
+		if err == nil {
+			q.Month = &mv
+		}
+	}
+	report, err := a.Finance.ExpenseReport(r.Context(), q)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, report)
+}
+
+func (a *API) SeedExpenseDemoData(w http.ResponseWriter, r *http.Request) {
+	stats, err := a.Finance.SeedExpenseDemoData(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "stats": stats})
 }
 
 func (a *API) CreatePolicy(w http.ResponseWriter, r *http.Request) {
@@ -517,6 +702,7 @@ func (a *API) ImportMFStatement(w http.ResponseWriter, r *http.Request) {
 	source := r.FormValue("source")
 	password := r.FormValue("password")
 	textFallback := r.FormValue("text")
+	replace := r.FormValue("replace") != "false" && r.FormValue("replace") != "0"
 	var personID *uuid.UUID
 	if pid := r.FormValue("person_id"); pid != "" {
 		id, err := uuid.Parse(pid)
@@ -544,7 +730,7 @@ func (a *API) ImportMFStatement(w http.ResponseWriter, r *http.Request) {
 		filename = "pasted-cas.txt"
 	}
 
-	res, err := a.MF.ImportStatement(r.Context(), personID, source, filename, password, fileBytes, textFallback)
+	res, err := a.MF.ImportStatement(r.Context(), personID, source, filename, password, fileBytes, textFallback, replace)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "import failed")
 		return

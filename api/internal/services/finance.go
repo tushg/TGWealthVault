@@ -2,8 +2,10 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -336,31 +338,73 @@ func (s *FinanceService) ListGoals(ctx context.Context) ([]models.Goal, error) {
 }
 
 type CreateGoalInput struct {
-	PersonID            *uuid.UUID      `json:"person_id"`
-	Name                string          `json:"name"`
-	TargetAmount        decimal.Decimal `json:"target_amount"`
-	CurrentAmount       decimal.Decimal `json:"current_amount"`
-	TargetDate          *time.Time      `json:"target_date"`
-	Category            *string         `json:"category"`
-	GoalType            string          `json:"goal_type"`
-	MonthlyContribution decimal.Decimal `json:"monthly_contribution"`
-	Priority            int             `json:"priority"`
+	PersonID            *uuid.UUID `json:"person_id"`
+	Name                string     `json:"name"`
+	TargetAmount        any        `json:"target_amount"`
+	CurrentAmount       any        `json:"current_amount"`
+	TargetDate          *string    `json:"target_date"`
+	Category            any        `json:"category"`
+	GoalType            string     `json:"goal_type"`
+	MonthlyContribution any        `json:"monthly_contribution"`
+	Priority            any        `json:"priority"`
 }
 
 func (s *FinanceService) CreateGoal(ctx context.Context, in CreateGoalInput) (*models.Goal, error) {
-	if in.GoalType == "" {
-		in.GoalType = "custom"
+	name := strings.TrimSpace(in.Name)
+	if name == "" {
+		return nil, fmt.Errorf("name is required")
 	}
-	if in.Priority <= 0 {
-		in.Priority = 3
+	target, err := parseDecimalAny(in.TargetAmount)
+	if err != nil || target.IsZero() || target.IsNegative() {
+		return nil, fmt.Errorf("target_amount must be a positive number")
 	}
+	current, _ := parseDecimalAny(in.CurrentAmount)
+	if current.IsNegative() {
+		current = decimal.Zero
+	}
+	monthly, _ := parseDecimalAny(in.MonthlyContribution)
+	if monthly.IsNegative() {
+		monthly = decimal.Zero
+	}
+	priority := parseIntAny(in.Priority, 3)
+	if priority < 1 {
+		priority = 1
+	}
+	if priority > 5 {
+		priority = 5
+	}
+	goalType := strings.ToLower(strings.TrimSpace(in.GoalType))
+	switch goalType {
+	case "home", "education", "retirement", "emergency", "wedding", "vehicle", "custom":
+	default:
+		goalType = "custom"
+	}
+	category := parseOptionalString(in.Category)
+	if category == nil {
+		c := goalType
+		category = &c
+	}
+	var targetDate *time.Time
+	if in.TargetDate != nil && strings.TrimSpace(*in.TargetDate) != "" {
+		raw := strings.TrimSpace(*in.TargetDate)
+		parsed, err := time.Parse(time.RFC3339, raw)
+		if err != nil {
+			parsed, err = time.Parse("2006-01-02", raw)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("invalid target_date")
+		}
+		d := time.Date(parsed.Year(), parsed.Month(), parsed.Day(), 0, 0, 0, 0, time.UTC)
+		targetDate = &d
+	}
+
 	var g models.Goal
-	err := s.pool.QueryRow(ctx, `
+	err = s.pool.QueryRow(ctx, `
 		INSERT INTO goals (person_id, name, target_amount, current_amount, target_date, category, goal_type, monthly_contribution, priority)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
 		RETURNING id, person_id, name, target_amount, current_amount, target_date, category,
 		          COALESCE(goal_type,'custom'), COALESCE(monthly_contribution,0), COALESCE(priority,3), created_at, updated_at
-	`, in.PersonID, in.Name, in.TargetAmount, in.CurrentAmount, in.TargetDate, in.Category, in.GoalType, in.MonthlyContribution, in.Priority).Scan(
+	`, in.PersonID, name, target, current, targetDate, category, goalType, monthly, priority).Scan(
 		&g.ID, &g.PersonID, &g.Name, &g.TargetAmount, &g.CurrentAmount, &g.TargetDate, &g.Category,
 		&g.GoalType, &g.MonthlyContribution, &g.Priority, &g.CreatedAt, &g.UpdatedAt,
 	)
@@ -379,6 +423,115 @@ func (s *FinanceService) DeleteGoal(ctx context.Context, id uuid.UUID) error {
 		return fmt.Errorf("goal not found")
 	}
 	return nil
+}
+
+type UpdateGoalInput struct {
+	Name                *string `json:"name"`
+	TargetAmount        any     `json:"target_amount"`
+	CurrentAmount       any     `json:"current_amount"`
+	TargetDate          *string `json:"target_date"`
+	Category            any     `json:"category"`
+	GoalType            *string `json:"goal_type"`
+	MonthlyContribution any     `json:"monthly_contribution"`
+	Priority            any     `json:"priority"`
+}
+
+func (s *FinanceService) UpdateGoal(ctx context.Context, id uuid.UUID, in UpdateGoalInput) (*models.Goal, error) {
+	var g models.Goal
+	err := s.pool.QueryRow(ctx, `
+		SELECT id, person_id, name, target_amount, current_amount, target_date, category,
+		       COALESCE(goal_type,'custom'), COALESCE(monthly_contribution,0), COALESCE(priority,3), created_at, updated_at
+		FROM goals WHERE id=$1
+	`, id).Scan(
+		&g.ID, &g.PersonID, &g.Name, &g.TargetAmount, &g.CurrentAmount, &g.TargetDate, &g.Category,
+		&g.GoalType, &g.MonthlyContribution, &g.Priority, &g.CreatedAt, &g.UpdatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("goal not found")
+	}
+
+	if in.Name != nil {
+		name := strings.TrimSpace(*in.Name)
+		if name == "" {
+			return nil, fmt.Errorf("name is required")
+		}
+		g.Name = name
+	}
+	if in.TargetAmount != nil {
+		target, err := parseDecimalAny(in.TargetAmount)
+		if err != nil || target.IsZero() || target.IsNegative() {
+			return nil, fmt.Errorf("target_amount must be a positive number")
+		}
+		g.TargetAmount = target
+	}
+	if in.CurrentAmount != nil {
+		current, err := parseDecimalAny(in.CurrentAmount)
+		if err != nil || current.IsNegative() {
+			return nil, fmt.Errorf("current_amount must be zero or positive")
+		}
+		g.CurrentAmount = current
+	}
+	if in.MonthlyContribution != nil {
+		monthly, err := parseDecimalAny(in.MonthlyContribution)
+		if err != nil || monthly.IsNegative() {
+			return nil, fmt.Errorf("monthly_contribution must be zero or positive")
+		}
+		g.MonthlyContribution = monthly
+	}
+	if in.Priority != nil {
+		priority := parseIntAny(in.Priority, g.Priority)
+		if priority < 1 {
+			priority = 1
+		}
+		if priority > 5 {
+			priority = 5
+		}
+		g.Priority = priority
+	}
+	if in.GoalType != nil {
+		goalType := strings.ToLower(strings.TrimSpace(*in.GoalType))
+		switch goalType {
+		case "home", "education", "retirement", "emergency", "wedding", "vehicle", "custom":
+			g.GoalType = goalType
+		default:
+			return nil, fmt.Errorf("invalid goal_type")
+		}
+	}
+	if in.Category != nil {
+		g.Category = parseOptionalString(in.Category)
+	}
+	if in.TargetDate != nil {
+		raw := strings.TrimSpace(*in.TargetDate)
+		if raw == "" {
+			g.TargetDate = nil
+		} else {
+			parsed, err := time.Parse(time.RFC3339, raw)
+			if err != nil {
+				parsed, err = time.Parse("2006-01-02", raw)
+			}
+			if err != nil {
+				return nil, fmt.Errorf("invalid target_date")
+			}
+			d := time.Date(parsed.Year(), parsed.Month(), parsed.Day(), 0, 0, 0, 0, time.UTC)
+			g.TargetDate = &d
+		}
+	}
+
+	err = s.pool.QueryRow(ctx, `
+		UPDATE goals
+		SET name=$2, target_amount=$3, current_amount=$4, target_date=$5, category=$6,
+		    goal_type=$7, monthly_contribution=$8, priority=$9, updated_at=NOW()
+		WHERE id=$1
+		RETURNING id, person_id, name, target_amount, current_amount, target_date, category,
+		          COALESCE(goal_type,'custom'), COALESCE(monthly_contribution,0), COALESCE(priority,3), created_at, updated_at
+	`, g.ID, g.Name, g.TargetAmount, g.CurrentAmount, g.TargetDate, g.Category, g.GoalType, g.MonthlyContribution, g.Priority).Scan(
+		&g.ID, &g.PersonID, &g.Name, &g.TargetAmount, &g.CurrentAmount, &g.TargetDate, &g.Category,
+		&g.GoalType, &g.MonthlyContribution, &g.Priority, &g.CreatedAt, &g.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &g, nil
 }
 
 func (s *FinanceService) ListMF(ctx context.Context) ([]models.MFHolding, error) {
@@ -425,11 +578,52 @@ func (s *FinanceService) ListPolicies(ctx context.Context) ([]models.Policy, err
 	return out, rows.Err()
 }
 
-func (s *FinanceService) ListCashflow(ctx context.Context) ([]models.CashflowEntry, error) {
-	rows, err := s.pool.Query(ctx, `
+func (s *FinanceService) ListCashflow(ctx context.Context, q CashflowQuery) ([]models.CashflowEntry, error) {
+	sql := `
 		SELECT id, person_id, type, category, amount, entry_month, recurring, created_at, updated_at
-		FROM cashflow_entries ORDER BY entry_month DESC, created_at DESC LIMIT 200
-	`)
+		FROM cashflow_entries WHERE 1=1`
+	args := []any{}
+	n := 1
+
+	if t := strings.TrimSpace(q.Type); t == "income" || t == "expense" {
+		sql += fmt.Sprintf(` AND type=$%d`, n)
+		args = append(args, t)
+		n++
+	}
+
+	month := strings.TrimSpace(q.Month)
+	from := strings.TrimSpace(q.From)
+	to := strings.TrimSpace(q.To)
+	if month != "" {
+		if len(month) < 7 {
+			return nil, fmt.Errorf("invalid month, use YYYY-MM")
+		}
+		month = month[:7]
+		sql += fmt.Sprintf(` AND to_char(entry_month, 'YYYY-MM') = $%d`, n)
+		args = append(args, month)
+		n++
+	} else {
+		if from != "" {
+			if len(from) < 7 {
+				return nil, fmt.Errorf("invalid from, use YYYY-MM")
+			}
+			sql += fmt.Sprintf(` AND to_char(entry_month, 'YYYY-MM') >= $%d`, n)
+			args = append(args, from[:7])
+			n++
+		}
+		if to != "" {
+			if len(to) < 7 {
+				return nil, fmt.Errorf("invalid to, use YYYY-MM")
+			}
+			sql += fmt.Sprintf(` AND to_char(entry_month, 'YYYY-MM') <= $%d`, n)
+			args = append(args, to[:7])
+			n++
+		}
+	}
+
+	sql += ` ORDER BY entry_month DESC, category ASC, created_at DESC LIMIT 1000`
+
+	rows, err := s.pool.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -442,7 +636,17 @@ func (s *FinanceService) ListCashflow(ctx context.Context) ([]models.CashflowEnt
 		}
 		out = append(out, e)
 	}
+	if out == nil {
+		out = []models.CashflowEntry{}
+	}
 	return out, rows.Err()
+}
+
+type CashflowQuery struct {
+	Type  string // income | expense | ""
+	From  string // YYYY-MM
+	To    string // YYYY-MM
+	Month string // YYYY-MM (single month shortcut)
 }
 
 type CreateCashflowInput struct {
@@ -455,12 +659,20 @@ type CreateCashflowInput struct {
 }
 
 func (s *FinanceService) CreateCashflow(ctx context.Context, in CreateCashflowInput) (*models.CashflowEntry, error) {
+	// Normalize to calendar month (DATE) — avoid timezone day-shifts
+	month := time.Date(in.EntryMonth.UTC().Year(), in.EntryMonth.UTC().Month(), 1, 0, 0, 0, 0, time.UTC)
+	if in.Type != "income" && in.Type != "expense" {
+		return nil, fmt.Errorf("type must be income or expense")
+	}
+	if strings.TrimSpace(in.Category) == "" {
+		return nil, fmt.Errorf("category is required")
+	}
 	var e models.CashflowEntry
 	err := s.pool.QueryRow(ctx, `
 		INSERT INTO cashflow_entries (person_id, type, category, amount, entry_month, recurring)
 		VALUES ($1,$2,$3,$4,$5,$6)
 		RETURNING id, person_id, type, category, amount, entry_month, recurring, created_at, updated_at
-	`, in.PersonID, in.Type, in.Category, in.Amount, in.EntryMonth, in.Recurring).Scan(
+	`, in.PersonID, in.Type, strings.TrimSpace(in.Category), in.Amount, month, in.Recurring).Scan(
 		&e.ID, &e.PersonID, &e.Type, &e.Category, &e.Amount, &e.EntryMonth, &e.Recurring, &e.CreatedAt, &e.UpdatedAt,
 	)
 	if err != nil {
@@ -521,4 +733,86 @@ func (s *FinanceService) DeletePolicy(ctx context.Context, id uuid.UUID) error {
 		return fmt.Errorf("policy not found")
 	}
 	return nil
+}
+
+func parseDecimalAny(v any) (decimal.Decimal, error) {
+	if v == nil {
+		return decimal.Zero, nil
+	}
+	switch t := v.(type) {
+	case float64:
+		return decimal.NewFromFloat(t), nil
+	case float32:
+		return decimal.NewFromFloat32(t), nil
+	case int:
+		return decimal.NewFromInt(int64(t)), nil
+	case int64:
+		return decimal.NewFromInt(t), nil
+	case json.Number:
+		return decimal.NewFromString(t.String())
+	case string:
+		s := strings.TrimSpace(strings.ReplaceAll(t, ",", ""))
+		if s == "" {
+			return decimal.Zero, nil
+		}
+		return decimal.NewFromString(s)
+	default:
+		s := strings.TrimSpace(fmt.Sprint(t))
+		if s == "" || s == "<nil>" {
+			return decimal.Zero, nil
+		}
+		return decimal.NewFromString(s)
+	}
+}
+
+func parseIntAny(v any, fallback int) int {
+	if v == nil {
+		return fallback
+	}
+	switch t := v.(type) {
+	case float64:
+		return int(t)
+	case int:
+		return t
+	case int64:
+		return int(t)
+	case json.Number:
+		n, err := t.Int64()
+		if err != nil {
+			return fallback
+		}
+		return int(n)
+	case string:
+		s := strings.TrimSpace(t)
+		if s == "" {
+			return fallback
+		}
+		n, err := strconv.Atoi(s)
+		if err != nil {
+			return fallback
+		}
+		return n
+	default:
+		return fallback
+	}
+}
+
+func parseOptionalString(v any) *string {
+	if v == nil {
+		return nil
+	}
+	switch t := v.(type) {
+	case string:
+		s := strings.TrimSpace(t)
+		if s == "" {
+			return nil
+		}
+		return &s
+	default:
+		s := strings.TrimSpace(fmt.Sprint(t))
+		if s == "" || s == "<nil>" {
+			return nil
+		}
+		return &s
+	}
 }

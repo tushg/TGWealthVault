@@ -5,9 +5,25 @@ import { AppShell } from "@/components/AppShell";
 import { api } from "@/lib/api";
 import { useSession } from "@/lib/useSession";
 
+const SAMPLE_SUMMARY = `PORTFOLIO SUMMARY
+Mutual Fund Cost Value(INR) Market Value(INR)
+ICICI Prudential Mutual Fund 4,83,000.00 4,96,262.24
+HDFC Mutual Fund 3,25,599.31 8,64,311.17
+SBI Mutual Fund 7,66,500.00 9,05,825.51
+PPFAS Mutual Fund 4,68,447.10 9,25,218.62
+Kotak Mutual Fund 2,56,000.00 4,37,366.72
+Franklin Templeton Mutual Fund 81,000.00 99,175.93
+Helios Mutual Fund 2,71,048.34 2,80,605.16
+Bandhan Mutual Fund 1,46,000.00 1,49,394.06
+AXIS Mutual Fund 7,500.00 7,502.39
+Invesco Mutual Fund 5,000.00 4,999.74
+Mirae Asset Mutual Fund 2,47,500.00 5,05,489.05
+Total 30,57,594.75 46,76,150.58`;
+
 export default function ImportPage() {
   const { user, loading } = useSession();
   const [statements, setStatements] = useState<Record<string, unknown>[]>([]);
+  const [text, setText] = useState(SAMPLE_SUMMARY);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -27,10 +43,11 @@ export default function ImportPage() {
     setErr(null);
     const form = e.currentTarget;
     const fd = new FormData(form);
+    fd.set("text", text);
+    fd.set("replace", "true");
     try {
       const res = await api.importMF(fd);
-      setMsg(`Imported ${res.holdings_imported} scheme(s), ${res.transactions_imported || 0} transaction(s) from ${res.source.toUpperCase()}. ${res.notes || ""}`);
-      form.reset();
+      setMsg(`Imported ${res.holdings_imported} fund(s), ${res.transactions_imported || 0} txn(s). ${res.notes || ""}`);
       await load();
     } catch (error) {
       setErr(error instanceof Error ? error.message : "Import failed");
@@ -45,16 +62,15 @@ export default function ImportPage() {
     <AppShell
       userName={user.name}
       title="Import statements"
-      subtitle="CAMS / KFin Consolidated Account Statement — same workflow as research portfolio managers."
+      subtitle="Paste CAMS PORTFOLIO SUMMARY (cost + market value). Re-import replaces previous CAMS/KFin holdings."
     >
       <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
         <form onSubmit={onSubmit} className="panel p-6 space-y-4">
           <div>
-            <h2 className="text-lg" style={{ fontFamily: "var(--font-display), Georgia, serif" }}>Upload CAS</h2>
-          <p className="text-sm text-[var(--muted)] mt-1">
-            Upload CAMS <strong>Detailed</strong> Consolidated Account Statement (PDF/CSV/TXT). We parse transactions and create MF holdings by scheme name.
-            Password-protected PDFs: unlock/export text or paste statement text below.
-          </p>
+            <h2 className="text-lg" style={{ fontFamily: "var(--font-display), Georgia, serif" }}>CAMS Portfolio Summary</h2>
+            <p className="text-sm text-[var(--muted)] mt-1">
+              PDF screenshots are not OCR’d automatically. Paste the summary table text (pre-filled from your statement screenshot). Each Mutual Fund row becomes an MF entry with cost & market value.
+            </p>
           </div>
           <label>
             <span className="label">Source</span>
@@ -64,20 +80,28 @@ export default function ImportPage() {
             </select>
           </label>
           <label>
-            <span className="label">Statement file (PDF / CSV / TXT)</span>
+            <span className="label">Optional file (PDF/CSV/TXT — not images)</span>
             <input name="file" type="file" accept=".pdf,.csv,.txt" className="field" />
           </label>
           <label>
-            <span className="label">PDF password (stored encrypted)</span>
-            <input name="password" type="password" className="field" placeholder="PAN / statement password" />
+            <span className="label">Portfolio summary / CAS text</span>
+            <textarea
+              name="text"
+              rows={14}
+              className="field font-mono text-xs"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+            />
           </label>
-          <label>
-            <span className="label">Or paste CAS / CSV text</span>
-            <textarea name="text" rows={8} className="field font-mono text-xs" placeholder={"scheme,folio,units,nav,value,amc,category\nParag Parikh Flexi Cap,12345678,120.5,75.2,9051.60,PPFAS,Equity"} />
-          </label>
-          <button className="btn-primary" disabled={busy} type="submit">
-            {busy ? "Importing…" : "Import into vault"}
-          </button>
+          <p className="text-xs text-[var(--muted)]">Re-import always replaces existing CAMS/KFin holdings, then inserts the newly parsed funds.</p>
+          <div className="flex flex-wrap gap-2">
+            <button className="btn-primary" disabled={busy} type="submit">
+              {busy ? "Importing…" : "Replace & import into MF"}
+            </button>
+            <button type="button" className="btn-ghost" onClick={() => setText(SAMPLE_SUMMARY)}>
+              Reset sample summary
+            </button>
+          </div>
           {msg && <p className="text-sm text-[var(--accent)]">{msg}</p>}
           {err && <p className="text-sm text-[var(--danger)]">{err}</p>}
         </form>

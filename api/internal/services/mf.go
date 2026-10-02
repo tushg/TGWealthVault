@@ -41,7 +41,7 @@ type ImportResult struct {
 	Notes                 string             `json:"notes,omitempty"`
 }
 
-func (s *MFService) ImportStatement(ctx context.Context, personID *uuid.UUID, source, filename, password string, fileBytes []byte, textFallback string) (*ImportResult, error) {
+func (s *MFService) ImportStatement(ctx context.Context, personID *uuid.UUID, source, filename, password string, fileBytes []byte, textFallback string, replaceExisting bool) (*ImportResult, error) {
 	if source == "" {
 		source = mfparse.DetectSource(filename, textFallback)
 	}
@@ -76,6 +76,17 @@ func (s *MFService) ImportStatement(ctx context.Context, personID *uuid.UUID, so
 		return nil, err
 	}
 
+	lowerName := strings.ToLower(filename)
+	if strings.HasSuffix(lowerName, ".png") || strings.HasSuffix(lowerName, ".jpg") || strings.HasSuffix(lowerName, ".jpeg") || strings.HasSuffix(lowerName, ".webp") {
+		if strings.TrimSpace(textFallback) == "" {
+			notes := "Image uploads are not OCR'd yet. Paste the PORTFOLIO SUMMARY text (Mutual Fund / Cost / Market Value rows) in the text box."
+			_, _ = s.pool.Exec(ctx, `
+				UPDATE mf_statements SET status='failed', error_message=$2, parse_notes=$3, parsed_at=NOW() WHERE id=$1
+			`, id, "image requires pasted summary text", notes)
+			return &ImportResult{StatementID: id, Source: source, Status: "failed", Notes: notes}, nil
+		}
+	}
+
 	text, notes := s.extractStatementText(filename, fileBytes, textFallback, password)
 	if strings.TrimSpace(text) == "" {
 		_, _ = s.pool.Exec(ctx, `
@@ -84,23 +95,42 @@ func (s *MFService) ImportStatement(ctx context.Context, personID *uuid.UUID, so
 		return &ImportResult{StatementID: id, Source: source, Status: "failed", Notes: notes}, nil
 	}
 
-	detailed := mfparse.ParseDetailedCAS(text, source)
-	holdings := detailed.Holdings
-	txns := detailed.Transactions
+	var holdings []mfparse.Holding
+	var txns []mfparse.Transaction
 
-	if len(holdings) == 0 {
-		holdings = mfparse.ParseCSV(text)
-	}
-	if len(holdings) == 0 {
-		holdings = mfparse.ParseCASText(text, source)
+	// Prefer CAMS Portfolio Summary (AMC cost/market) — matches statement screenshots
+	if summary := mfparse.ParsePortfolioSummary(text); len(summary) > 0 {
+		holdings = summary
+		notes += " Parsed PORTFOLIO SUMMARY (AMC cost & market value). "
+	} else {
+		detailed := mfparse.ParseDetailedCAS(text, source)
+		holdings = detailed.Holdings
+		txns = detailed.Transactions
+		if len(holdings) == 0 {
+			holdings = mfparse.ParseCSV(text)
+		}
+		if len(holdings) == 0 {
+			holdings = mfparse.ParseCASText(text, source)
+		}
 	}
 
 	if len(holdings) == 0 && len(txns) == 0 {
-		notes += " No holdings/transactions detected. Prefer CAMS Detailed CAS (unlocked) or paste text/CSV."
+		notes += " No holdings/transactions detected. Paste PORTFOLIO SUMMARY rows or Detailed CAS text."
 		_, _ = s.pool.Exec(ctx, `
 			UPDATE mf_statements SET status='failed', error_message=$2, parse_notes=$3, parsed_at=NOW() WHERE id=$1
 		`, id, "no holdings detected", notes)
 		return &ImportResult{StatementID: id, Source: source, Status: "failed", Notes: notes}, nil
+	}
+
+	if replaceExisting {
+		// Drop goal links for CAMS/KFin holdings, then holdings (transactions cascade)
+		_, _ = s.pool.Exec(ctx, `
+			DELETE FROM goal_assets ga
+			USING mf_holdings h
+			WHERE ga.asset_type='mf' AND ga.asset_id = h.id AND h.source IN ('cams','kfin')
+		`)
+		_, _ = s.pool.Exec(ctx, `DELETE FROM mf_holdings WHERE source IN ('cams','kfin')`)
+		notes += " Replaced previous CAMS/KFin holdings. "
 	}
 
 	importedHoldings := 0
@@ -352,6 +382,7 @@ func (s *MFService) CreateHolding(ctx context.Context, in CreateMFInput) (*model
 }
 
 func (s *MFService) DeleteHolding(ctx context.Context, id uuid.UUID) error {
+	_, _ = s.pool.Exec(ctx, `DELETE FROM goal_assets WHERE asset_type='mf' AND asset_id=$1`, id)
 	tag, err := s.pool.Exec(ctx, `DELETE FROM mf_holdings WHERE id=$1`, id)
 	if err != nil {
 		return err

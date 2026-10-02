@@ -14,6 +14,8 @@ import {
   Settings,
   Upload,
   Bell,
+  ClipboardList,
+  ChartColumn,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/format";
@@ -41,6 +43,8 @@ const navGroups = [
       { href: "/goals", label: "Goals", icon: Target },
       { href: "/policies", label: "Protect", icon: Shield },
       { href: "/cashflow", label: "Cashflow", icon: Wallet },
+      { href: "/cashflow/budget", label: "Expense Budget", icon: ClipboardList },
+      { href: "/cashflow/expense-report", label: "Expense Report", icon: ChartColumn },
     ],
   },
   {
@@ -107,7 +111,11 @@ export function AppShell({
               <div className="space-y-0.5">
                 {group.items.map((item) => {
                   const Icon = item.icon;
-                  const active = pathname === item.href || (item.href !== "/portfolio" && pathname.startsWith(item.href));
+                  const active =
+                    pathname === item.href ||
+                    (item.href !== "/portfolio" &&
+                      item.href !== "/cashflow" &&
+                      pathname.startsWith(`${item.href}/`));
                   const badge = "badgeKey" in item && item.badgeKey === "alerts" ? openAlerts : 0;
                   return (
                     <Link
