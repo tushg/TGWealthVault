@@ -253,6 +253,9 @@ func (s *FinanceService) CreateDeposit(ctx context.Context, in CreateDepositInpu
 	if err != nil {
 		return nil, err
 	}
+	if status == "matured" && s.alerts != nil {
+		_ = s.alerts.NotifyDepositMatured(ctx, &d)
+	}
 	return &d, nil
 }
 
