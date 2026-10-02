@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+web/node_modules/
+web/.next/
+web/out/
+
+# Go
+api/bin/
+api/tmp/
+*.exe
+*.test
+*.out
+
+# Env & secrets
+.env
+.env.*
+!.env.example
+!.env.local.example
+web/.env*.local
+api/.env
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Uploads / local data
+api/uploads/
+*.pdf
+!docs/**/*.pdf
+
+# Coverage / build
+coverage/
+dist/
+*.log

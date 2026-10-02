@@ -1,0 +1,10 @@
+{
+  "name": "tgwealthvault",
+  "private": true,
+  "scripts": {
+    "dev:web": "npm --prefix web run dev",
+    "dev:api": "cd api && go run ./cmd/server",
+    "build:web": "npm --prefix web run build",
+    "build:api": "cd api && go build -o bin/server.exe ./cmd/server"
+  }
+}
